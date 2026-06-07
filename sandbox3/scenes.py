@@ -39,7 +39,10 @@ class SceneBank:
         while t2 in existing:
             t2 = f"{title}·{n}"
             n += 1
-        scene = {"id": f"X-{len(self._custom) + 1:02d}", "title": t2,
+        nums = [int(t["id"][2:]) for t in self._custom
+                if str(t.get("id", "")).startswith("X-") and str(t["id"])[2:].isdigit()]
+        new_id = f"X-{(max(nums) if nums else 0) + 1:02d}"
+        scene = {"id": new_id, "title": t2,
                  "category": raw.get("category") if raw.get("category") in CATEGORIES else "现代职场",
                  "sketch": str(raw.get("sketch") or ""),
                  "owner_hints": str(raw.get("owner_hints") or "")}

@@ -36,6 +36,21 @@ class TestSceneBank(unittest.TestCase):
         cands = self.bank.candidates(["初来乍到"], used={"C1-01"})
         self.assertNotIn("C1-01", {c["id"] for c in cands})
 
+    def test_id_no_reuse_after_delete(self):
+        sc1 = self.bank.add_custom({"title": "场景A", "category": "现代职场", "sketch": "a", "owner_hints": ""})
+        sc2 = self.bank.add_custom({"title": "场景B", "category": "现代职场", "sketch": "b", "owner_hints": ""})
+        sc3 = self.bank.add_custom({"title": "场景C", "category": "现代职场", "sketch": "c", "owner_hints": ""})
+        # 模拟删档：手动从 _custom 删掉中间一条并重写持久化
+        self.bank._custom = [t for t in self.bank._custom if t["id"] != sc2["id"]]
+        self.bank.custom_path.write_text(
+            __import__("json").dumps(self.bank._custom, ensure_ascii=False, indent=2),
+            encoding="utf-8")
+        sc4 = self.bank.add_custom({"title": "场景D", "category": "现代职场", "sketch": "d", "owner_hints": ""})
+        existing_ids = {t["id"] for t in self.bank._custom if t["id"] != sc4["id"]}
+        self.assertNotIn(sc4["id"], existing_ids)
+        # 新 id 必须大于现存最大序号（sc3 是 X-03，新的应为 X-04）
+        self.assertGreater(int(sc4["id"][2:]), int(sc3["id"][2:]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -44,7 +44,9 @@ def _run_thread(cfg: dict) -> None:
         trace = run_simulation(cast=CAST, llm=LLM, bank=BANK,
                                n_scenes=cfg["scenes"], start_tp=cfg["start"],
                                seed=cfg.get("seed"), emit=_emit)
-        out_dir = save_run(trace, jd=STATE["jd"])
+        with LOCK:
+            jd = STATE["jd"]
+        out_dir = save_run(trace, jd=jd)
         _emit({"type": "saved", "path": str(out_dir)})
     except Exception as e:                                   # noqa: BLE001 直播必须把错误亮给页面
         _emit({"type": "error", "text": f"{type(e).__name__}: {e}"})
@@ -156,7 +158,8 @@ class Handler(BaseHTTPRequestHandler):
                                      for c in CAST.members()],
                             "candidate": CAST.candidate().name})
             elif u.path == "/api/jd":
-                STATE["jd"] = str(body.get("text") or "")
+                with LOCK:
+                    STATE["jd"] = str(body.get("text") or "")
                 self._json({"ok": True})
             else:
                 self._json({"error": "not found"}, 404)
