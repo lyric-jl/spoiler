@@ -31,6 +31,8 @@ class Cast:
     # ---- 构造与校验 ----
     @classmethod
     def from_cards(cls, raw_cards: list[dict]) -> "Cast":
+        if not isinstance(raw_cards, list):
+            raise CastError(f"名单须为列表，得到 {type(raw_cards).__name__}")
         if not 2 <= len(raw_cards) <= MAX_CAST:
             raise CastError(f"名单需 2-{MAX_CAST} 人，得到 {len(raw_cards)}")
         cards, names = [], set()

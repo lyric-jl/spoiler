@@ -40,6 +40,16 @@ class TestCastValidation(unittest.TestCase):
         self.assertIn("行为手册", block)
         self.assertIn("周默", block)
 
+    def test_non_list_input_rejected(self):
+        for bad in (None, "abc", {"name": "x"}):
+            with self.assertRaises(CastError):
+                Cast.from_cards(bad)
+
+    def test_load_default_smoke(self):
+        c = Cast.load_default()
+        self.assertEqual(c.candidate().name, "周默")
+        self.assertEqual(len(c.members()), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
