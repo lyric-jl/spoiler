@@ -5,7 +5,7 @@
 诚实口径（随产物走）：聚合后也只是"该人设在沙盘中的倾向分布"，未经对账校准，不构成预测。
 对齐口径：各局 seed 不同、场景序可能分叉——按幕号+行动方软对齐，分叉如实标注（aligned 字段）。"""
 from __future__ import annotations
-import argparse, json, pathlib, time
+import argparse, json, time
 from concurrent.futures import ThreadPoolExecutor
 
 from .engine import run_simulation
