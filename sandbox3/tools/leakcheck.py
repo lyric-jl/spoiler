@@ -11,6 +11,8 @@
 4. 增加 options（给该 actor 的选项文本）扫描（原脚本有此项）。
 5. __main__ 接 run 目录 + actor + 逗号分隔关键词，与蓝本等价。
 
+关键词为子串匹配——高召回、可能误报（如"编制"命中"编制预算"），结果供人工复核，不作自动判定。
+
 判读语义不变：
 - 目标 actor 的内心/选择理由/行动/各问投票理由/给他的选项/叙事认知句式 → hits
 - 其他角色内心含关键词 → ok_mentions（知情者合法，不计泄漏）
@@ -149,6 +151,9 @@ if __name__ == "__main__":
     run_dir = Path(sys.argv[1])
     actor = sys.argv[2]
     keywords = [k.strip() for k in sys.argv[3].split(",") if k.strip()]
-    trace = json.loads((run_dir / "trace.json").read_text(encoding="utf-8"))
+    trace_file = run_dir / "trace.json"
+    if not trace_file.exists():
+        sys.exit(f"错误：{run_dir}/trace.json 不存在")
+    trace = json.loads(trace_file.read_text(encoding="utf-8"))
     result = leakcheck(trace, actor=actor, keywords=keywords)
     _print_result(run_dir, actor, result)

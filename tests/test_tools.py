@@ -155,6 +155,31 @@ class TestCheckupFunction(unittest.TestCase):
         self.assertNotIn("pass", result["verdict"].lower(),
                          msg=f"偏置情形不应判 pass，实际: {result['verdict']}")
 
+    def test_winner_pos_order_missing(self):
+        """第1问 vote 无 order（或 order 不含 winner）时降级到 position 字段。
+
+        构造：round1 vote 的 order=[]（winner 不在 order 里），
+        但 orig_id == winner_orig_id，position="B"。
+        预期 winner_pos_counts 捡起降级值 "B"，计数为 1。
+        """
+        from sandbox3.tools.checkup import checkup
+        # order 为空列表，winner 不在其中；orig_id == winner_orig_id → 降级取 position
+        votes = [
+            {"round": 1, "order": [], "position": "B",
+             "orig_id": "W", "reasoning": "", "confidence": 80},
+            _vote(2, "C", "W"),
+        ]
+        beat = _make_beat(1, "周默", "", "", "", votes=votes, winner_orig_id="W")
+        scene = {"index": 1, "beats": [beat]}
+        trace = _make_trace([scene])
+        run_dir = self._make_run_dir(trace)
+        result = checkup([run_dir])
+        # 降级分支：order 不含 winner，orig_id==winner → 用 position "B"
+        self.assertEqual(result["winner_pos_counts"].get("B", 0), 1,
+                         msg=f"降级时应捡 position='B'，实际 winner_pos_counts={result['winner_pos_counts']}")
+        self.assertEqual(result["winner_pos_counts"].get("?", 0), 0,
+                         msg="降级成功时不应落到 '?' 桶")
+
     def test_total_beats_count(self):
         """total_beats 计数正确（跨 run_dir 累加）。"""
         from sandbox3.tools.checkup import checkup
