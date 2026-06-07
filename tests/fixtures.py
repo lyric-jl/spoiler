@@ -1,6 +1,59 @@
 # tests/fixtures.py
 """共享测试素材。卡片文本逐字取自蓝本 personas.py（已验证人设资产）。"""
 
+# ---- router_factory（从 test_engine_run.py 迁入，供多处共用）----
+
+ADV1 = {"narration": "推进1", "scene_over": False, "juncture": "节骨眼1", "acting_agent": "周默",
+        "options": [{"id": "A", "text": "甲"}, {"id": "B", "text": "乙"}, {"id": "C", "text": "丙"}]}
+ADV_OVER = {"narration": "收幕", "scene_over": True}
+APPR = {"emotions": {"焦虑": 70}, "internal_thoughts": "心里想着乙"}
+DEC_B = {"action_id": "?", "action": "做乙", "reasoning": "符合人设", "confidence": 80,
+         "emotion_tags": ["谨慎"]}
+AUDIT_OK = {"playbook_match": ["第1条"], "playbook_conflict": "无", "thought_consistency": "一致",
+            "thought_note": "", "fabricated_cues": [], "info_overreach": "无",
+            "inner_gap": "无", "verdict": "通过", "note": ""}
+SETTLE = {"state_changes": {}, "scene_summary": "摘要", "witnesses": ["周默", "沈雯"],
+          "relations": {"沈雯": {"attitude": "neutral", "evidence": "证据"}},
+          "commitment": 3.0, "commitment_rationale": "理由"}
+CONSEQ = {"consequences": []}
+
+
+_SCENE = {"theme": "t", "sim_time": "入职第1周·周三·上午", "setting": "工位",
+          "npc": [], "current_scene": "开场", "goals": {}, "scene_conflict": "冲突"}
+
+
+def router_factory():
+    """按 system 提示词关键词路由 + 决策按'呈现的乙在哪个位置'返回该位（内容恒选乙）。"""
+    state = {"adv": 0}
+    def router(system, user):
+        if "场景主持人" in system and "扩写" in system:
+            return dict(_SCENE)
+        if "节骨眼回合" in system:
+            state["adv"] += 1
+            return dict(ADV1) if state["adv"] == 1 else dict(ADV_OVER)
+        if "情绪评价" in system or "内部情绪" in system:
+            return dict(APPR)
+        if "面临一个决定" in system:
+            for line in user.splitlines():
+                for label in ("A", "B", "C", "D"):
+                    if line.strip().startswith(f"{label}.") and "乙" in line:
+                        return dict(DEC_B, action_id=label)
+            raise AssertionError("呈现序里找不到乙")
+        if "审计员" in system:
+            return dict(AUDIT_OK)
+        if "收场" in system:
+            return dict(SETTLE)
+        if "从候选转折点中选出" in system:
+            for line in user.splitlines():
+                s = line.strip()
+                if s.startswith("- "):
+                    return {"choice_id": s[2:].split(" ", 1)[0], "why": "测试取首个"}
+            return {"choice_id": "?", "why": "测试无候选"}
+        if "结算" in system:
+            return dict(CONSEQ)
+        raise AssertionError(f"未知调用：{system[:50]}")
+    return router
+
 
 def card_zhou() -> dict:
     return {"name": "周默", "kind": "candidate",
