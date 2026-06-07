@@ -267,9 +267,10 @@ def run_simulation(*, cast: Cast, llm, bank, n_scenes: int = 4, start_tp: str = 
         _log(f"   状态变化：{ {k: f'{a}->{b}' for k, (a, b) in changed.items()} or '无'}；承诺：{commitment}")
         emit({"type": "settle", "scene": idx + 1, "states": new_state,
               "changes": {k: list(v) for k, v in changed.items()},
-              "evidence": evidence, "commitment": commitment,
+              "evidence": dict(evidence), "commitment": commitment,
               "rationale": rec["commitment_rationale"], "summary": rec["scene_summary"],
-              "witnesses": wit, "sim_time": sim_time, "relations": relations,
+              "witnesses": wit, "sim_time": sim_time,
+              "relations": {k: dict(v) for k, v in relations.items()},
               "warnings": rec["warnings"]})
 
         emit({"type": "status", "text": "记录者正在结算悬而未决的后果…"})

@@ -5,7 +5,7 @@ from sandbox3.cast import Cast
 from sandbox3.engine import run_simulation
 from sandbox3.scenes import SceneBank
 from tests.fakes import FakeLLM
-from tests.fixtures import card_zhou, card_shen
+from tests.fixtures import card_zhou, card_shen, card_colleague
 
 SCENE = {"theme": "t", "sim_time": "入职第1周·周三·上午", "setting": "工位",
          "npc": [], "current_scene": "开场", "goals": {}, "scene_conflict": "冲突"}
@@ -95,6 +95,65 @@ class TestRunSimulation(unittest.TestCase):
         for t in ("run_started", "scene_open", "beat_open", "inner", "decision",
                   "audit", "settle", "done"):
             self.assertIn(t, types)
+
+
+class TestRelationsFiltering(unittest.TestCase):
+    """relations 三条过滤分支的负路径测试（三人局：周默/沈雯/陈磊）。"""
+
+    def setUp(self):
+        # 三人局：候选人=周默，counterpart=沈雯，colleague=陈磊
+        self.cast = Cast.from_cards([card_zhou(), card_shen(), card_colleague()])
+        self.bank = SceneBank()
+
+        # settle 含四条 relations，覆盖三条过滤分支
+        settle_filter = dict(SETTLE, relations={
+            "沈雯":  {"attitude": "supportive", "evidence": "e1"},  # 合法 → 应保留
+            "陈磊":  {"attitude": "敌对",       "evidence": "e2"},  # attitude 越界 → 整条丢弃
+            "周默":  {"attitude": "neutral",    "evidence": "e3"},  # 候选人自指 → 丢弃
+            "路人甲": {"attitude": "neutral",   "evidence": "e4"},  # 名单外 → 丢弃
+        })
+
+        def router(system, user):
+            if "收场" in system:
+                return dict(settle_filter)
+            return router_factory()(system, user)
+
+        # router_factory 内部有状态，需独立实例处理 adv 计数
+        base = router_factory()
+        def router2(system, user):
+            if "收场" in system:
+                return dict(settle_filter)
+            return base(system, user)
+
+        self.trace = run_simulation(
+            cast=self.cast,
+            llm=FakeLLM(router=router2),
+            bank=self.bank,
+            n_scenes=1,
+            seed=42,
+        )
+
+    def test_valid_relation_kept(self):
+        """attitude 合法的 counterpart 应保留在 relations。"""
+        rels = self.trace["scenes"][0]["relations"]
+        self.assertIn("沈雯", rels)
+        self.assertEqual(rels["沈雯"]["attitude"], "supportive")
+
+    def test_candidate_self_reference_dropped(self):
+        """候选人自指（周默）应被剔除，不得出现在 relations。"""
+        rels = self.trace["scenes"][0]["relations"]
+        self.assertNotIn("周默", rels)
+
+    def test_out_of_cast_dropped(self):
+        """名单外名字（路人甲）应被剔除。"""
+        rels = self.trace["scenes"][0]["relations"]
+        self.assertNotIn("路人甲", rels)
+
+    def test_invalid_attitude_dropped(self):
+        """attitude 越界（"敌对"不在枚举）→ 整条丢弃，陈磊不得出现在 relations。
+        引擎行 259-261：attitude not in (supportive/neutral/opposed) → 整条过滤掉，不做矫正。"""
+        rels = self.trace["scenes"][0]["relations"]
+        self.assertNotIn("陈磊", rels)
 
 
 class TestFirewallIsolation(unittest.TestCase):
