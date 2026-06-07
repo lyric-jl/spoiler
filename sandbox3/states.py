@@ -1,4 +1,4 @@
-# relate_mvp/states.py
+# sandbox3/states.py
 """八状态灯（职场版）+ 枚举 + 下一幕类别启发式。
 对应 RELATE-Sim Appendix D 的职场化映射（见精读笔记 §9）：
 clarity→role_clarity（角色清晰度，对上文献 role clarity）、
