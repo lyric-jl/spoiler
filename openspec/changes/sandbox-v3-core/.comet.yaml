@@ -1,12 +1,12 @@
 workflow: full
 phase: build
 build_mode: null
-build_pause: null
+build_pause: plan-ready
 isolation: null
 verify_mode: null
 base_ref: null
 design_doc: docs/superpowers/specs/2026-06-07-sandbox-v3-core-design.md
-plan: null
+plan: docs/superpowers/plans/2026-06-07-sandbox-v3-core.md
 verify_result: pending
 verification_report: null
 branch_status: pending
