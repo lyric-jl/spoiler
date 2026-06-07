@@ -56,7 +56,8 @@ class TestRender(unittest.TestCase):
     # ---- cast 列表（kind=candidate/counterpart 应出现在头部）----
     def test_cast_listed_in_header(self):
         # 头部应列出 cast 成员与 kind
-        self.assertIn("candidate", self.md)
+        self.assertIn("在场名单：", self.md)
+        self.assertIn("沈雯（counterpart）", self.md)
 
     # ---- 审计只标记不改判（脚注）----
     def test_audit_disclaimer_present(self):
@@ -87,6 +88,40 @@ class TestSaveRun(unittest.TestCase):
             loaded = json.loads((out / "trace.json").read_text(encoding="utf-8"))
             self.assertIn("meta", loaded)
             self.assertIn("scenes", loaded)
+
+
+class TestRenderDegraded(unittest.TestCase):
+    """缺字段降级路径：render 不炸、降级提示到位。"""
+
+    # 最小 meta（无 cast 键）+ 最小 scenes（空列表）
+    _MINIMAL_META_NO_CAST = {
+        "model": "fake", "n_scenes": 0, "n_llm_calls": 0, "warnings_total": 0,
+        "actor_counts": {}, "audit_flags": 0, "seed": 0,
+        "vote_stats": {}, "vote_position_counts": {}, "inner_gaps": {},
+        "candidate": "测试候选人",
+        # 故意不包含 "cast" 键
+    }
+
+    def test_meta_without_cast(self):
+        """meta 无 cast 键时 render 不报错，头部含降级提示。"""
+        trace = {"meta": dict(self._MINIMAL_META_NO_CAST), "scenes": []}
+        md = render(trace)
+        self.assertIn("（无在场名单信息）", md)
+
+    def test_scene_without_relations(self):
+        """某幕 relations 为空/缺失时 render 不报错，且该幕无"关系细目"段。"""
+        from sandbox3.states import STATE_ENUMS
+        # 取一条真实 trace，把第一幕 relations 清空
+        trace = _make_trace()
+        scene0 = trace["scenes"][0]
+        scene0["relations"] = {}  # 置空
+        md = render(trace)
+        # render 不应抛异常（能到这里就算通过），全文结构正常
+        self.assertIn("承诺轨迹", md)
+        # 若所有幕均无 relations，则"关系细目"不应出现
+        all_empty = all(not sc.get("relations") for sc in trace["scenes"])
+        if all_empty:
+            self.assertNotIn("关系细目", md)
 
 
 if __name__ == "__main__":

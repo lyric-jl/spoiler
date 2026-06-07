@@ -62,7 +62,7 @@ def render(trace: dict) -> str:
     # ① 观察主体行：从 meta["candidate"] + meta["cast"] 生成（列名单+kind）
     candidate_name = m.get("candidate", "?")
     cast_list = m.get("cast") or []
-    cast_s = "、".join(f"{c['name']}（{c.get('kind', '?')}）" for c in cast_list)
+    cast_s = "、".join(f"{c['name']}（{c.get('kind', '?')}）" for c in cast_list) or "（无在场名单信息）"
 
     out = ["# 契合沙盘 · 受控选项推演 MVP — 台本（整改版）",
            "",
