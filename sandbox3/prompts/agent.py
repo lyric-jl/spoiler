@@ -12,7 +12,7 @@ from .sm import EMOTION_KEYS, _beats_text
 
 # ---------- Agent ① 情绪评价（自建 rubric，Appendix C 只有图） ----------
 
-def appraisal_system(actor: str, cast) -> str:
+def appraisal_system(cast, actor: str) -> str:
     return (
         f"{cast.persona_block(actor)}\n\n"
         "你正在经历下面的职场场景。请以这个角色的第一人称做一次内部情绪评价："
@@ -39,7 +39,7 @@ def appraisal_user(scene: dict, transcript: list[str], narration: str,
 
 # ---------- Agent ② 行动选择（Appendix B 忠实职场版） ----------
 
-def decision_system(actor: str, cast) -> str:
+def decision_system(cast, actor: str) -> str:
     return (
         f"{cast.persona_block(actor)}\n\n"
         "你正处在一段职场工作关系中，面临一个决定。\n"
@@ -96,9 +96,9 @@ AUDIT_SYSTEM = (
     "你只标记，不改判。只输出 JSON。"
 )
 
-def audit_user(actor: str, internal_thoughts: str, scene: dict, transcript: list[str],
+def audit_user(cast, actor: str, internal_thoughts: str, scene: dict, transcript: list[str],
                narration: str, juncture: str, visible_ledger: list[dict],
-               hidden_ledger: list[dict], options: list[dict], decision: dict, cast) -> str:
+               hidden_ledger: list[dict], options: list[dict], decision: dict) -> str:
     rules = "\n".join(f"第{i + 1}条：{r}" for i, r in enumerate(cast.get(actor).playbook))
     opts = "\n".join(f"{o['id']}. {o['text']}" for o in options)
     hidden = ledger_text(hidden_ledger, show_witnesses=True) if hidden_ledger else "（无）"
