@@ -1,5 +1,5 @@
 workflow: full
-phase: open
+phase: design
 build_mode: null
 build_pause: null
 isolation: null
@@ -13,3 +13,5 @@ branch_status: pending
 created_at: 2026-06-07
 verified_at: null
 archived: false
+handoff_context: openspec/changes/sandbox-v3-core/.comet/handoff/design-context.json
+handoff_hash: c99b63fcfec25af5d882c817aaba43dacfbada2d7c35b9a6052bd54958a8e322
