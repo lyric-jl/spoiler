@@ -4,10 +4,19 @@
   "mode": "compact",
   "canonical_spec": "openspec",
   "generated_by": "comet-handoff.sh",
-  "context_hash": "c99b63fcfec25af5d882c817aaba43dacfbada2d7c35b9a6052bd54958a8e322",
+  "context_hash": "49f86f788769b2c507ad690a8e5142af40c63c930ef3858aa334603f1f067976",
   "files": [
     { "path": "openspec/changes/sandbox-v3-core/proposal.md", "sha256": "529df0ce6f0eafed02d6478546a2c15a00ae2df8ec2ee59e37246b1739e09509" },
     { "path": "openspec/changes/sandbox-v3-core/design.md", "sha256": "18480efb07b04926997a618dc628dd212bfcc3b3d891725de58bcac10841a268" },
-    { "path": "openspec/changes/sandbox-v3-core/tasks.md", "sha256": "5643504386e95975c4ce51a5acc7525ce890366b202c2a0c5af4b8877417ee89" }
+    { "path": "openspec/changes/sandbox-v3-core/tasks.md", "sha256": "ff172f6b207737072617813d3c2d9885dec67b63c38633c882404ec097d1c969" },
+    { "path": "openspec/changes/sandbox-v3-core/specs/console/spec.md", "sha256": "f4e18e430fe83604fc012e2e297d57cdc81e99c7ebe158faf9e154db335b617b" },
+    { "path": "openspec/changes/sandbox-v3-core/specs/info-firewall/spec.md", "sha256": "fa375cac8eb89c69401aed1a36516900ada863b1bd7a0408399252cedb56187e" },
+    { "path": "openspec/changes/sandbox-v3-core/specs/jd-context/spec.md", "sha256": "13b98d4a35009b7b7ffcacc0264da8c5bf9f725e92523669152e14c44a2bb036" },
+    { "path": "openspec/changes/sandbox-v3-core/specs/multi-agent-cast/spec.md", "sha256": "9dd2ddd79e090af164e735c82e3f81243227866e37bd1de4b93f29e26480200f" },
+    { "path": "openspec/changes/sandbox-v3-core/specs/persona-distill/spec.md", "sha256": "6fd38311873bf95b68fabd45d58d522137a77504cdaa953849cb11cd8419331b" },
+    { "path": "openspec/changes/sandbox-v3-core/specs/reason-audit/spec.md", "sha256": "0103c791c700f8faf3fe97cd5fb87e3a712769731893276086975464b74a0877" },
+    { "path": "openspec/changes/sandbox-v3-core/specs/rollout-engine/spec.md", "sha256": "588f6918e0d128ae5a136b29e54adcef2530810e45c8744c4b8e2ac0d7261272" },
+    { "path": "openspec/changes/sandbox-v3-core/specs/run-aggregation/spec.md", "sha256": "9f6078cf0b90147b92a7556f1f460e698a92e9f3162b4083182e6314fe55263c" },
+    { "path": "openspec/changes/sandbox-v3-core/specs/scene-bank/spec.md", "sha256": "0ccb47dca7ad4c46be4f2ed0b9470a35a7f3e62d1fb022e2cb842cbfe7ecc8c6" }
   ]
 }
