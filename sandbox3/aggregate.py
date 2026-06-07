@@ -9,7 +9,7 @@ import argparse, json, pathlib, time
 from concurrent.futures import ThreadPoolExecutor
 
 from .engine import run_simulation
-from .trace import render, save_run
+from .trace import render
 from .states import STATE_ENUMS, STATE_LABELS
 
 FOOTNOTE = ("聚合为该人设在沙盘中的倾向分布；承诺与状态灯未经对账校准，不构成对真实结局的预测；"
