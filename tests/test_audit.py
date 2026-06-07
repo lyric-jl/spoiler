@@ -31,6 +31,13 @@ class TestAudit(unittest.TestCase):
         self.assertEqual(a["verdict"], "黄旗")
         self.assertEqual(len(warns), 1)
 
+    def test_missing_verdict_coerced_to_flag(self):
+        missing = dict(GOOD)
+        del missing["verdict"]
+        a, warns = run_audit(FakeLLM([missing]), self.cast, **self.kw)
+        self.assertEqual(a["verdict"], "黄旗")     # 缺失 verdict 保守落黄旗
+        self.assertEqual(len(warns), 1)
+
     def test_hidden_ledger_in_prompt(self):
         fake = FakeLLM([GOOD])
         kw = dict(self.kw, hidden_ledger=[{"time": "t", "text": "秘密事件", "witnesses": ["沈雯"]}])
