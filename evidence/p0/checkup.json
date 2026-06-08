@@ -1,0 +1,18 @@
+{
+  "run_count": 2,
+  "total_beats": 24,
+  "total_votes": 72,
+  "position_counts": {
+    "B": 20,
+    "A": 28,
+    "C": 22,
+    "D": 2
+  },
+  "winner_pos_counts": {
+    "B": 4,
+    "A": 7,
+    "C": 13
+  },
+  "winner_pos_a_ratio": 0.2916666666666667,
+  "verdict": "pass（位置偏置在合理范围；A位占比 29.2%，期望区间 [20%, 47%]）"
+}

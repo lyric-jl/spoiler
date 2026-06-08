@@ -1,0 +1,9 @@
+=== P0 证据采集开始 ===
+[done] scenes=4 seed=42 start=C1-01 -> D:\aidasai\sandbox-v3\output\run_20260608-102920 calls=87 warns=0 173.3s
+[done] scenes=4 seed=7 start=C1-01 -> D:\aidasai\sandbox-v3\output\run_20260608-103202 calls=87 warns=1 162.7s
+[checkup] verdict=pass（位置偏置在合理范围；A位占比 29.2%，期望区间 [20%, 47%]） A占比=0.2916666666666667 winner_pos={'B': 4, 'A': 7, 'C': 13} total_beats=24
+[done] scenes=2 seed=7 start=C5-02 -> D:\aidasai\sandbox-v3\output\run_20260608-103329 calls=43 warns=1 86.8s
+[leakcheck] hit_count=1 ok_mentions=1
+=== 全部 live 局完成 ===
+checkup run dirs: run_20260608-102920, run_20260608-103202
+leakcheck run dir: run_20260608-103329
