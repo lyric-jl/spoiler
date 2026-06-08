@@ -2,6 +2,8 @@
 comet_change: sandbox-v3-core
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-06-08-sandbox-v3-core
+status: final
 ---
 
 # sandbox-v3-core 技术设计
