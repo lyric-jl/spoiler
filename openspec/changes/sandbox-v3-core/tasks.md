@@ -25,11 +25,11 @@
 
 ## 3. P1 · 多人引擎
 
-- [ ] 3.1 PERSONAS 注册表化（N-agent），SM 从集合选行动方
-- [ ] 3.2 network 灯多人口径落地（按深度设计拍的方案）
-- [ ] 3.3 多人防火墙：N 人知情范围 + witnesses 扩展 + 对抗验证
-- [ ] 3.4 操作台多人呈现：真 agent 头像/内心/行动方金圈（替换 NPC 布景占位）
-- [ ] 3.5 P1 验收：三人局 live 立住（同事真 agent 做真决策，审计/灯/聚合全链兼容）
+- [x] 3.1 PERSONAS 注册表化（N-agent，名单制 Cast），SM 从集合选行动方（live 三人各做真决策，行动方分布周默6/陈磊2/沈雯1）
+- [x] 3.2 network 灯多人口径落地（live 中 network neutral->supportive 变化出现）
+- [x] 3.3 多人防火墙：N 人知情范围 + witnesses 扩展 + 对抗验证（test_engine_run 三人局防火墙断言 + ledger.visible 按 witnesses）
+- [~] 3.4 操作台多人呈现：真 agent 头像/内心/行动方金圈（theater.py cast 数组驱动+三头像+金圈代码完成；浏览器形态人判待作者自验）
+- [~] 3.5 P1 验收：三人局 live 客观立住（陈磊 2 个完整决策回合·非布景，审计/灯/relations 全链兼容，证据 evidence/p1/）；操作台形态/叙事人判待作者
 
 ## 4. P2 · 蒸馏器 + JD
 
