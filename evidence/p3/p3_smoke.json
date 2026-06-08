@@ -1,0 +1,29 @@
+[
+  {
+    "id": "C3-03",
+    "title": "上线夜的故障归属",
+    "run_dir": "run_20260608-122329",
+    "calls": 21,
+    "warns": 0,
+    "beats": 3,
+    "ok": true
+  },
+  {
+    "id": "C4-03",
+    "title": "被一句话否掉的方案",
+    "run_dir": "run_20260608-122416",
+    "calls": 21,
+    "warns": 1,
+    "beats": 3,
+    "ok": true
+  },
+  {
+    "id": "C6-03",
+    "title": "AI 写的代码",
+    "run_dir": "run_20260608-122455",
+    "calls": 21,
+    "warns": 0,
+    "beats": 3,
+    "ok": true
+  }
+]
