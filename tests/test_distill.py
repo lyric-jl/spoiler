@@ -91,6 +91,16 @@ class TestDistill(unittest.TestCase):
         finally:
             empty.rmdir()
 
+    def test_bad_stage2_card_raises_casterror(self):
+        """live 最易踩：LLM 产不合格卡（playbook 不足 3 条）→ 借校验器抛 CastError，
+        错误亮到调用方，不静默放行坏卡。"""
+        from sandbox3.cast import CastError
+        bad_card = dict(GOOD_CARD, playbook=["只有一条"])
+        replies = [_stage1_reply(i) for i in range(4)]
+        fake = FakeLLM(router=_router(replies, bad_card))
+        with self.assertRaises(CastError):
+            distill(fake, MATERIALS)
+
 
 if __name__ == "__main__":
     unittest.main()
