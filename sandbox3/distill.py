@@ -9,7 +9,7 @@ from .llm import DeepSeekClient
 from .prompts import distill as DP
 
 
-def distill(llm, material_dir: pathlib.Path, jd: str = "") -> dict:
+def distill(llm, material_dir: pathlib.Path, jd: str = "", name: str | None = None) -> dict:
     files = sorted(material_dir.glob("*.md"))
     if not files:
         raise ValueError(f"{material_dir} 下没有材料（*.md）")
@@ -18,6 +18,8 @@ def distill(llm, material_dir: pathlib.Path, jd: str = "") -> dict:
                  for f in files]
     card = llm.complete_json(DP.STAGE2_SYSTEM, DP.stage2_user(summaries, jd))
     card.setdefault("kind", "candidate")
+    if name:
+        card["name"] = name      # 姓名是确定性事实（PII），由调用方显式指定，不靠 LLM 蒸馏
     Cast.from_cards([card, {"name": "_占位上级", "kind": "counterpart", "role": "占位",
                             "persona": "占位", "playbook": ["a", "b", "c"]}])   # 借校验器验卡
     return card
@@ -28,9 +30,10 @@ def main() -> None:
     ap.add_argument("material_dir")
     ap.add_argument("--jd", default=None)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--name", default=None, help="候选人真实姓名（姓名是事实，显式指定，不靠 LLM 蒸馏）")
     args = ap.parse_args()
     jd = pathlib.Path(args.jd).read_text(encoding="utf-8") if args.jd else ""
-    card = distill(DeepSeekClient(), pathlib.Path(args.material_dir), jd)
+    card = distill(DeepSeekClient(), pathlib.Path(args.material_dir), jd, name=args.name)
     out = pathlib.Path(args.out or "card.json")
     out.write_text(json.dumps(card, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"角色卡已写出：{out}（导入操作台或 --cast 即用，引擎一行不改）")

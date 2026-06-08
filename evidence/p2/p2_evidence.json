@@ -1,0 +1,29 @@
+{
+  "distilled_card": {
+    "name": "独立交付型工程师",
+    "role": "后端开发工程师",
+    "persona_len": 385,
+    "playbook_n": 7
+  },
+  "perspective_tension": {
+    "self_side": [
+      "冷静"
+    ],
+    "other_side": [
+      "语速",
+      "加快",
+      "紧张",
+      "敲",
+      "面试官"
+    ],
+    "both_present": true
+  },
+  "run_dir": "run_20260608-114927",
+  "calls": 43,
+  "warns": 0,
+  "actor_counts": {
+    "独立交付型工程师": 5,
+    "沈雯": 1
+  },
+  "zhou_behaviors": []
+}

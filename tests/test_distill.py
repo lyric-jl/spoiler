@@ -91,6 +91,14 @@ class TestDistill(unittest.TestCase):
         finally:
             empty.rmdir()
 
+    def test_name_param_overrides_llm(self):
+        """姓名由调用方显式指定，覆盖 LLM 产出（姓名是确定性事实 PII，不靠蒸馏猜）。"""
+        weird = dict(GOOD_CARD, name="独立交付型工程师")   # 模拟 LLM 把 name 产成人设标签
+        replies = [_stage1_reply(i) for i in range(4)]
+        fake = FakeLLM(router=_router(replies, weird))
+        card = distill(fake, MATERIALS, name="周默")
+        self.assertEqual(card["name"], "周默")
+
     def test_bad_stage2_card_raises_casterror(self):
         """live 最易踩：LLM 产不合格卡（playbook 不足 3 条）→ 借校验器抛 CastError，
         错误亮到调用方，不静默放行坏卡。"""
