@@ -10,8 +10,9 @@ class TestSceneBank(unittest.TestCase):
         self.bank = S.SceneBank(custom_path=self.tmp / "custom.json")
 
     def test_presets_loaded(self):
-        self.assertEqual(len(self.bank.all()), 12)
-        self.assertEqual(len({t["id"] for t in self.bank.all()}), 12)
+        all_scenes = self.bank.all()
+        self.assertGreaterEqual(len(all_scenes), 12)                          # 至少 12 条预设（扩充后更多）
+        self.assertEqual(len({t["id"] for t in all_scenes}), len(all_scenes))  # id 全唯一
 
     def test_by_id(self):
         self.assertEqual(self.bank.by_id("C1-01")["category"], "初来乍到")
