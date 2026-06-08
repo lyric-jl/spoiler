@@ -54,9 +54,19 @@ class DeepSeekClient:
                 time.sleep(2 * (attempt + 1))
         raise LLMError(f"DeepSeek 调用在 {retries + 1} 次尝试后仍失败：{last}")
 
-    def complete_json(self, system: str, user: str, **kw) -> dict:
-        raw = self.complete(system, user, json_mode=True, **kw)
-        out = json.loads(_strip_fences(raw))
-        if not isinstance(out, dict):
-            raise LLMError(f"模型未返回 JSON 对象，得到 {type(out).__name__}")
-        return out
+    def complete_json(self, system: str, user: str, *, json_retries: int = 2, **kw) -> dict:
+        # DeepSeek 即便 json_mode 也偶发吐坏 JSON（尾随逗号/缺引号）——重新取响应重试，
+        # 仍失败才大声抛（live-only 红线：不静默吞、不用假数据冒充）。
+        last: Exception | None = None
+        for attempt in range(json_retries + 1):
+            raw = self.complete(system, user, json_mode=True, **kw)
+            try:
+                out = json.loads(_strip_fences(raw))
+            except json.JSONDecodeError as e:
+                last = e
+                print(f"[sandbox3.llm] 第{attempt + 1}次返回不可解析 JSON，重试：{e}", file=sys.stderr)
+                continue
+            if not isinstance(out, dict):
+                raise LLMError(f"模型未返回 JSON 对象，得到 {type(out).__name__}")
+            return out
+        raise LLMError(f"DeepSeek 在 {json_retries + 1} 次尝试后仍返回不可解析 JSON：{last}")

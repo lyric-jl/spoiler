@@ -5,7 +5,7 @@
 诚实口径（随产物走）：聚合后也只是"该人设在沙盘中的倾向分布"，未经对账校准，不构成预测。
 对齐口径：各局 seed 不同、场景序可能分叉——按幕号+行动方软对齐，分叉如实标注（aligned 字段）。"""
 from __future__ import annotations
-import argparse, json, time
+import argparse, json, sys, time
 from concurrent.futures import ThreadPoolExecutor
 
 from .engine import run_simulation
@@ -124,14 +124,25 @@ def main() -> None:
 
     t0 = time.time()
 
-    def one(i: int) -> dict:
-        trace = run_simulation(cast=Cast.load_default(), llm=DeepSeekClient(),
-                               bank=SceneBank(), n_scenes=args.scenes,
-                               start_tp=args.start, seed=args.seed + i)
-        return trace
+    def one(i: int) -> dict | None:
+        # 单局容错：某局偶发失败（如 LLM 吐坏 JSON 重试后仍败）不连坐整批——
+        # 5-run 取均值容许部分缺失；失败明着记 stderr+报告，不静默冒充成功。
+        try:
+            return run_simulation(cast=Cast.load_default(), llm=DeepSeekClient(),
+                                  bank=SceneBank(), n_scenes=args.scenes,
+                                  start_tp=args.start, seed=args.seed + i)
+        except Exception as e:
+            print(f"[aggregate] 第 {i + 1} 局失败，跳过：{type(e).__name__}: {e}", file=sys.stderr)
+            return None
 
     with ThreadPoolExecutor(max_workers=args.runs) as ex:
-        traces = list(ex.map(one, range(args.runs)))
+        raw_traces = list(ex.map(one, range(args.runs)))
+    traces = [t for t in raw_traces if t is not None]
+    n_ok = len(traces)
+    if not traces:
+        raise RuntimeError(f"全部 {args.runs} 局失败，无可聚合数据")
+    if n_ok < args.runs:
+        print(f"[aggregate] {args.runs} 局中 {n_ok} 局成功，{args.runs - n_ok} 局失败，按成功局聚合", file=sys.stderr)
 
     stamp = time.strftime("%Y%m%d-%H%M%S")
     out_dir = OUTPUT_DIR / f"batch_{stamp}"
@@ -147,7 +158,7 @@ def main() -> None:
     (out_dir / "aggregate.json").write_text(json.dumps(agg, ensure_ascii=False, indent=2),
                                             encoding="utf-8")
     (out_dir / "聚合报告.md").write_text(render_aggregate(agg, cfg), encoding="utf-8")
-    print(f"\n完成：{args.runs} 局并发，{agg['beats_total']} 节骨眼，{agg['elapsed_s']}s")
+    print(f"\n完成：{n_ok}/{args.runs} 局成功，{agg['beats_total']} 节骨眼，{agg['elapsed_s']}s")
     print(f"摇摆率 {agg['sway_rate']:.0%}　黄旗率 {agg['audit_flag_rate']:.0%}　心口缝 {agg['inner_gaps_total']} 处")
     print(f"输出：{out_dir}")
 
