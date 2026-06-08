@@ -1,5 +1,5 @@
 # sandbox3/scenes.py
-"""场景库：12 条预设（data/scene_bank.json，蓝本逐字迁移）+ 自定义持久化。
+"""场景库：12 条基线预设迁移 + P3 扩充（data/scene_bank.json，当前 15 条）+ 自定义持久化。
 去重从简：同名加后缀（作者拍，不上相似度算法）。"""
 from __future__ import annotations
 import json
