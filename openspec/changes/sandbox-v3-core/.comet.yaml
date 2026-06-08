@@ -1,5 +1,7 @@
 workflow: full
-phase: build
+build_command: python -X utf8 -m unittest discover -s tests
+verify_command: python -X utf8 -m unittest discover -s tests
+phase: verify
 build_mode: subagent-driven-development
 build_pause: null
 isolation: branch
