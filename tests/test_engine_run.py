@@ -138,5 +138,118 @@ class TestFirewallIsolation(unittest.TestCase):
             self.assertNotIn("沈雯单独知道的事", u)
 
 
+class TestThreePersonRun(unittest.TestCase):
+    """P1 三人局（周默/沈雯/陈磊）集成测试——三回合各行动一次，FakeLLM 不花钱。"""
+
+    # settle 含沈雯+陈磊两条合法 relations
+    SETTLE_THREE = dict(SETTLE, witnesses=["周默", "沈雯", "陈磊"],
+                        relations={
+                            "沈雯": {"attitude": "neutral",    "evidence": "沈雯证据"},
+                            "陈磊": {"attitude": "supportive", "evidence": "陈磊证据"},
+                        })
+
+    @staticmethod
+    def _make_router():
+        """三回合 advance：周默→陈磊→沈雯，第4次 scene_over。"""
+        adv_seq = [
+            dict(ADV1, acting_agent="周默"),
+            dict(ADV1, acting_agent="陈磊"),
+            dict(ADV1, acting_agent="沈雯"),
+            dict(ADV_OVER),                     # 第4次收幕
+        ]
+        idx = {"n": 0}
+        base = router_factory()
+
+        def router(system, user):
+            if "节骨眼回合" in system:
+                i = idx["n"]
+                idx["n"] += 1
+                return dict(adv_seq[i])
+            if "收场" in system:
+                return dict(TestThreePersonRun.SETTLE_THREE)
+            return base(system, user)
+
+        return router
+
+    def setUp(self):
+        self.cast = Cast.from_cards([card_zhou(), card_shen(), card_colleague()])
+        self.bank = SceneBank()
+        self.fake = FakeLLM(router=self._make_router())
+        self.trace = run_simulation(
+            cast=self.cast, llm=self.fake, bank=self.bank, n_scenes=1, seed=42)
+
+    # ---- 断言 1：三人各行动 1 次 ----
+    def test_actor_counts_all_three(self):
+        ac = self.trace["meta"]["actor_counts"]
+        self.assertEqual(ac.get("周默"), 1, f"周默应行动1次，实际：{ac}")
+        self.assertEqual(ac.get("陈磊"), 1, f"陈磊应行动1次，实际：{ac}")
+        self.assertEqual(ac.get("沈雯"), 1, f"沈雯应行动1次，实际：{ac}")
+
+    # ---- 断言 2：陈磊作为行动方时 beat 三件齐（appraisal/votes/audit）----
+    def test_chen_lei_beat_has_full_pipeline(self):
+        beats = self.trace["scenes"][0]["beats"]
+        chen_beats = [b for b in beats if b["acting_agent"] == "陈磊"]
+        self.assertEqual(len(chen_beats), 1, "陈磊应有且仅有1个 beat")
+        b = chen_beats[0]
+        self.assertIn("appraisal", b, "陈磊 beat 缺 appraisal")
+        self.assertIn("votes",     b, "陈磊 beat 缺 votes")
+        self.assertIn("audit",     b, "陈磊 beat 缺 audit")
+        # 进一步确认各件非空
+        self.assertTrue(b["votes"],     "陈磊 beat 的 votes 不应为空")
+        self.assertIn("verdict", b["audit"], "陈磊 beat 的 audit 缺 verdict")
+
+    # ---- 断言 3：settle 的 relations 含沈雯+陈磊两条 ----
+    def test_settle_relations_shen_and_chen(self):
+        rels = self.trace["scenes"][0]["relations"]
+        self.assertIn("沈雯", rels, f"relations 应含沈雯，实际：{list(rels)}")
+        self.assertIn("陈磊", rels, f"relations 应含陈磊，实际：{list(rels)}")
+        self.assertNotIn("周默", rels, "候选人周默不应出现在 relations")
+
+    # ---- 断言 4：防火墙——只有沈雯+陈磊在场的台账不进周默的提示词 ----
+    def test_firewall_zhou_cannot_see_shen_chen_only_entry(self):
+        """两幕局：第1幕 witnesses 只含沈雯+陈磊（周默不在场），
+        第2幕周默作为行动方时的 appraisal/decision user 串不应包含第1幕的私密摘要。"""
+        private_summary = "陈磊和沈雯单独商量的事_仅两人知道"
+        settle_private = dict(self.SETTLE_THREE,
+                              witnesses=["沈雯", "陈磊"],
+                              scene_summary=private_summary)
+
+        adv_seq = [
+            # 第1幕：陈磊行动1次后收幕（周默不作为行动方，防止他那幕的 appraisal user 干扰）
+            dict(ADV1, acting_agent="陈磊"),
+            dict(ADV_OVER),
+            # 第2幕：周默行动1次后收幕
+            dict(ADV1, acting_agent="周默"),
+            dict(ADV_OVER),
+        ]
+        idx2 = {"n": 0, "settle": 0}
+        base2 = router_factory()
+
+        def router2(system, user):
+            if "节骨眼回合" in system:
+                i = idx2["n"]
+                idx2["n"] += 1
+                return dict(adv_seq[i])
+            if "收场" in system:
+                idx2["settle"] += 1
+                return dict(settle_private) if idx2["settle"] == 1 else dict(self.SETTLE_THREE)
+            return base2(system, user)
+
+        fake2 = FakeLLM(router=router2)
+        run_simulation(cast=self.cast, llm=fake2, bank=SceneBank(), n_scenes=2, seed=7)
+
+        # 第2幕中周默作为行动方的 appraisal + decision user 串不得含私密摘要
+        zhou_appr_dec_calls = [
+            u for s, u in fake2.calls
+            if ("情绪评价" in s or "内部情绪" in s or "面临一个决定" in s)
+            and "周默" in s   # appraisal_system / decision_system 含 persona_block → 含"周默"
+        ]
+        # 第1幕陈磊作为行动方，所以周默的 appraisal/decision 全部属于第2幕
+        self.assertTrue(zhou_appr_dec_calls, "未捕获到周默作为行动方的 appraisal/decision 调用")
+        for u in zhou_appr_dec_calls:
+            self.assertNotIn(private_summary, u,
+                             "防火墙漏洞：周默的提示词中出现了他不在场的私密台账条目")
+
+
 if __name__ == "__main__":
     unittest.main()
