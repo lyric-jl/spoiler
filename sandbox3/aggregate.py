@@ -5,7 +5,7 @@
 诚实口径（随产物走）：聚合后也只是"该人设在沙盘中的倾向分布"，未经对账校准，不构成预测。
 对齐口径：各局 seed 不同、场景序可能分叉——按幕号+行动方软对齐，分叉如实标注（aligned 字段）。"""
 from __future__ import annotations
-import argparse, json, sys, time
+import argparse, json, pathlib, sys, time
 from concurrent.futures import ThreadPoolExecutor
 
 from .engine import run_simulation
@@ -114,6 +114,9 @@ def main() -> None:
     ap.add_argument("--scenes", type=int, default=4)
     ap.add_argument("--start", default="C1-01")
     ap.add_argument("--seed", type=int, default=42, help="seed 基值，逐局 +1（洗牌可复现）")
+    ap.add_argument("--cast", default=None, help="名单 JSON（缺省 data/cast_default.json）")
+    ap.add_argument("--scene-bank", default=None, help="场景库 JSON（缺省=内置后端库；JD 专属用 scene_gen 出的）")
+    ap.add_argument("--jd", default=None, help="JD JSON 路径，喂场景导演二次贴岗")
     args = ap.parse_args()
     cfg = {"scenes": args.scenes, "start": args.start, "seed": args.seed}
 
@@ -122,15 +125,25 @@ def main() -> None:
     from .scenes import SceneBank
     from .config import OUTPUT_DIR
 
+    cast = (Cast.from_cards(json.loads(pathlib.Path(args.cast).read_text(encoding="utf-8")))
+            if args.cast else Cast.load_default())
+    bank_path = pathlib.Path(args.scene_bank) if args.scene_bank else None
+    jd_text = ""
+    if args.jd:
+        _jd = json.loads(pathlib.Path(args.jd).read_text(encoding="utf-8"))
+        jd_text = f"{_jd.get('职位名称','')}\n{_jd.get('职位描述','')}"
+
     t0 = time.time()
 
     def one(i: int) -> dict | None:
         # 单局容错：某局偶发失败（如 LLM 吐坏 JSON 重试后仍败）不连坐整批——
         # 5-run 取均值容许部分缺失；失败明着记 stderr+报告，不静默冒充成功。
         try:
-            return run_simulation(cast=Cast.load_default(), llm=DeepSeekClient(),
-                                  bank=SceneBank(), n_scenes=args.scenes,
-                                  start_tp=args.start, seed=args.seed + i)
+            bank = (SceneBank(preset_path=bank_path, custom_path=pathlib.Path("__no_custom__"))
+                    if bank_path else SceneBank())
+            return run_simulation(cast=cast, llm=DeepSeekClient(), bank=bank,
+                                  n_scenes=args.scenes, start_tp=args.start,
+                                  seed=args.seed + i, jd=jd_text)
         except Exception as e:
             print(f"[aggregate] 第 {i + 1} 局失败，跳过：{type(e).__name__}: {e}", file=sys.stderr)
             return None

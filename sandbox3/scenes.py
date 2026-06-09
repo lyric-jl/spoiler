@@ -12,9 +12,10 @@ _PRESET_PATH = DATA_DIR / "scene_bank.json"
 
 
 class SceneBank:
-    def __init__(self, custom_path: pathlib.Path | None = None):
+    def __init__(self, custom_path: pathlib.Path | None = None,
+                 preset_path: pathlib.Path | None = None):
         self.custom_path = custom_path or (DATA_DIR / "custom_scenes.json")
-        self._presets = json.loads(_PRESET_PATH.read_text(encoding="utf-8"))
+        self._presets = json.loads((preset_path or _PRESET_PATH).read_text(encoding="utf-8"))
         self._custom: list[dict] = []
         if self.custom_path.exists():
             self._custom = json.loads(self.custom_path.read_text(encoding="utf-8"))

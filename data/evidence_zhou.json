@@ -1,0 +1,24 @@
+{
+  "candidate": "周默",
+  "_note": "证据单元表（方案A·信号分层）。MVP：他评/客观史/自陈由手工标注并溯源到材料行；后续由蒸馏器自动抽。direction：'+'=指向该风险升高、'-'=缓冲/降低、'0'=中性、'ref'=自陈仅供人设+落差不计分。",
+  "risks": {
+    "团队不合": {
+      "他评": [
+        {"source": "面试官·一面 老郑", "file": "interview.md:7", "quote": "全程话不多，问一句答一句，不主动延展", "direction": "+", "tag": "主动沟通弱"},
+        {"source": "面试官·一面 老郑", "file": "interview.md:9", "quote": "团队协作和主动沟通是待观察项", "direction": "+", "tag": "协作待观察"},
+        {"source": "面试官·二面 沈雯", "file": "interview.md:13", "quote": "如果没有十足把握，我一般不会当场公开提，会私下再想想——回避正面冲突的倾向比较明显", "direction": "+", "tag": "回避正面冲突"},
+        {"source": "面试官·二面 沈雯", "file": "interview.md:15", "quote": "需要给明确反馈和被看见的机会，否则容易闷着；自尊心强、要面子", "direction": "+", "tag": "需被看见否则退缩"},
+        {"source": "背调·前直属上级", "file": "backcheck.md:12", "quote": "比较独，话不多……不太主动跟人打交道，团队活动参与少", "direction": "+", "tag": "不主动融入（与面试官同向）"},
+        {"source": "背调·前直属上级", "file": "backcheck.md:12-13", "quote": "交给他的事能放心；是否推荐再雇用：会", "direction": "-", "tag": "可靠度高、愿再雇（缓冲）"}
+      ],
+      "客观史": [
+        {"source": "背调·工作表现", "file": "backcheck.md:12", "quote": "团队活动参与少（半客观行为记录）", "direction": "+", "tag": "半客观行为"},
+        {"source": "背调·核实结论", "file": "backcheck.md:18", "quote": "团队融入细节不在本报告核实范围内，记为未知", "direction": "0", "tag": "关键维度他评缺口→降置信"}
+      ],
+      "自陈_参考": [
+        {"source": "自评测评·大五", "file": "assessment.md:8", "quote": "外向性 24（偏低）——倾向独处工作，社交主动性弱", "direction": "ref", "tag": "内向：与他评同向，不进打分"},
+        {"source": "自陈落差点", "file": "assessment.md", "quote": "自评只承认到'内向'，未承认'回避正面冲突'这一条——他评比自陈更重", "direction": "ref", "tag": "落差：自陈轻描淡写了冲突回避"}
+      ]
+    }
+  }
+}
