@@ -58,6 +58,12 @@ textarea{resize:vertical}
 #chatlog .ai::before{content:"模型：";color:var(--muted)}
 .foot{font-size:10px;color:#5d4a1d;background:#f7e9c8;border-top:1px solid #dcbf7a;
   padding:8px 12px;line-height:1.6}
+#prep-log{max-height:150px;overflow-y:auto;border:1px solid var(--line);background:#fff;
+  padding:6px 8px;font-size:11px;line-height:1.6;margin:6px 0;color:#574e3f}
+#prep-log .ln{padding:1px 0}
+#prep-log .ln.err{color:var(--accent);font-weight:700}
+#prep-ready{font-weight:700;color:var(--ok)}
+.portrait-tip{font-size:10px;color:#5d4a1d;background:#f7e9c8;padding:5px 8px;margin-top:6px;line-height:1.6}
 
 /* ===== 右 ===== */
 .main{display:grid;grid-template-rows:minmax(0,56%) minmax(0,44%);overflow:hidden}
@@ -159,6 +165,25 @@ table.states td.k{color:var(--muted);width:88px;white-space:nowrap}
   <h1>契合沙盘 · 操作台</h1>
   <div class="sub">CONTROLLED-OPTION ROLLOUT · LIVE</div>
   <div class="panes">
+    <details open>
+      <summary>⓪ 案例配置（JD 驱动）</summary>
+      <div class="pane">
+        <div class="row"><label>岗位 JD</label><select id="jd-sel"></select></div>
+        <div class="row"><label>候选人</label><select id="cv-sel"></select></div>
+        <button class="btn" onclick="prepare('live')">▶ 现做（出题→答卷→蒸馏→搭班→场景）</button>
+        <button class="btn" onclick="prepare('load')">⚡ 秒加载预备案例</button>
+        <div class="tip" id="prep-ready"></div>
+        <div id="prep-log" style="display:none"></div>
+        <div class="tip">"现做"全程真调大模型、几十次调用要等几分钟（后台跑、上方报进度）；
+          备过的案例用"秒加载"瞬间复现。完成后名单/场景/画像自动就位，再去②开拍。</div>
+      </div>
+    </details>
+    <details id="portrait-details">
+      <summary>候选人画像（九维）</summary>
+      <div class="pane" id="portrait-pane">
+        <div class="tip">备料完成后，这里显示候选人按 JD 测评得到的九维倾向画像。</div>
+      </div>
+    </details>
     <details>
       <summary>① 导入名单（cast）</summary>
       <div class="pane">
@@ -190,9 +215,9 @@ table.states td.k{color:var(--muted);width:88px;white-space:nowrap}
       </div>
     </details>
     <details>
-      <summary>④ JD 输入框（用途待定）</summary>
+      <summary>④ JD 自由文本（遗留）</summary>
       <div class="pane">
-        <textarea id="jd" rows="4" placeholder="粘贴岗位 JD——先暂存，用途待作者拍"></textarea>
+        <textarea id="jd" rows="4" placeholder="自由文本 JD 暂存框（遗留入口）——JD 驱动请用上面的 ⓪"></textarea>
         <button class="btn" onclick="saveJd()">暂存</button>
         <span class="tip" id="jd-msg"></span>
       </div>
@@ -313,7 +338,55 @@ async function crystallize(){
 }
 async function saveJd(){
   const r=await api('/api/jd',{text:document.getElementById('jd').value});
-  document.getElementById('jd-msg').textContent=r.ok?'✓ 已暂存（用途待定，本轮只入档不驱动）':('✗ '+r.error);
+  document.getElementById('jd-msg').textContent=r.ok?'✓ 已暂存（遗留自由文本框；JD 驱动请用 ⓪）':('✗ '+r.error);
+}
+
+/* ---- ⓪ JD 驱动：配置案例→备料（现做/秒加载）→画像上墙 ---- */
+let prepTimer=null;
+async function loadCases(){
+  let c;try{c=await api('/api/cases')}catch(e){return}
+  if(!c||c.error)return;
+  const js=document.getElementById('jd-sel'),cs=document.getElementById('cv-sel');
+  js.innerHTML='';(c.samples.jd||[]).forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n;js.appendChild(o)});
+  cs.innerHTML='';(c.samples.cv||[]).forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n;cs.appendChild(o)});
+}
+async function prepare(mode){
+  const jd=document.getElementById('jd-sel').value,cv=document.getElementById('cv-sel').value;
+  const rd=document.getElementById('prep-ready');
+  if(!jd||!cv){rd.innerHTML='<span style="color:var(--accent)">✗ 先选 JD 和候选人</span>';return}
+  rd.textContent=mode==='load'?'⚡ 秒加载中…':'▶ 已下令现做，后台备料中…';
+  const r=await api('/api/prepare',{jd,cv,mode});
+  if(r.error){rd.innerHTML='<span style="color:var(--accent)">✗ '+esc(r.error)+'</span>';return}
+  if(mode!=='load'){const log=document.getElementById('prep-log');log.style.display='block';log.innerHTML='';}
+  pollPrep();
+}
+async function pollPrep(){
+  let p;try{p=await api('/api/prep_state')}catch(e){prepTimer=setTimeout(pollPrep,1500);return}
+  const log=document.getElementById('prep-log');
+  if(p.log&&p.log.length){log.style.display='block';
+    log.innerHTML=p.log.map(l=>`<div class="ln ${/^✗/.test(l)?'err':''}">${esc(l)}</div>`).join('');
+    log.scrollTop=log.scrollHeight;}
+  if(p.error){document.getElementById('prep-ready').innerHTML=
+    '<span style="color:var(--accent)">✗ 备料失败（见下方日志）</span>';return}
+  if(p.ready){renderPortrait(p.portrait);
+    document.getElementById('prep-ready').innerHTML='✓ 已就位：'+esc((p.meta&&p.meta.job)||'')+
+      ' · 名单 '+((p.meta&&p.meta.n_cast)||'?')+' 人 · 场景 '+((p.meta&&p.meta.n_scenes)||'?')+' 幕';
+    await loadState();return}
+  if(p.running)prepTimer=setTimeout(pollPrep,1500);
+}
+function renderPortrait(pt){
+  const el=document.getElementById('portrait-pane');
+  if(!pt||!pt.scores){el.innerHTML='<div class="tip">（暂无画像）</div>';return}
+  const det=document.getElementById('portrait-details');if(det)det.open=true;
+  const rows=pt.scores.map(s=>{
+    const lean=s.lean!=null?`${esc(s.lean_label)}（${esc(s.lean)}）`:'未知';
+    return `<tr><td class="k">${esc(s.dim)}</td><td style="color:var(--muted)">${esc(s.risk)}</td>
+      <td><b>${lean}</b></td><td>${esc(s.confidence)}</td></tr>`}).join('');
+  el.innerHTML=`<div style="font-size:11.5px;color:var(--muted);margin-bottom:4px">候选人：<b>${esc(pt.name||'')}</b>`+
+    `（${esc(pt.cv_id||'')}）· 出题源 ${esc(pt.jd_id||'')}</div>`+
+    `<table class="states"><tr><td class="k">维度</td><td>风险</td><td>倾向</td><td>置信</td></tr>${rows}</table>`+
+    `<div class="portrait-tip">⚠ 倾向＝她"答出来的样子"、非真实风险高低；模型扮演候选人作答、非真人，不构成预测。`+
+    `低置信是常态（自陈天生薄）。</div>`;
 }
 
 /* ---- 5-run 聚合视图（数据来自命令行 aggregate 的最新批次） ---- */
@@ -520,7 +593,7 @@ function render(){
   }
 }
 
-loadState();poll();loadAgg();
+loadState();poll();loadAgg();loadCases();pollPrep();
 window.addEventListener('resize',()=>render());
 </script>
 </body></html>
