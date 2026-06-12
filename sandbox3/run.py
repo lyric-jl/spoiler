@@ -5,7 +5,7 @@ import argparse, json, pathlib, time
 
 from .cast import Cast
 from .engine import run_simulation
-from .llm import DeepSeekClient
+from .llm import LLMClient
 from .scenes import SceneBank
 from .trace import save_run
 
@@ -20,7 +20,8 @@ def main() -> None:
     cast = Cast.from_cards(json.loads(pathlib.Path(args.cast).read_text(encoding="utf-8"))) \
         if args.cast else Cast.load_default()
     t0 = time.time()
-    trace = run_simulation(cast=cast, llm=DeepSeekClient(), bank=SceneBank(),
+    trace = run_simulation(cast=cast, llm=LLMClient("director"), bank=SceneBank(),
+                           actor_llm=LLMClient("actor"), audit_llm=LLMClient("auditor"),
                            n_scenes=args.scenes, start_tp=args.start, seed=args.seed)
     trace["meta"]["elapsed_s"] = round(time.time() - t0, 1)
     out = save_run(trace)

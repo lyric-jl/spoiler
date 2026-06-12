@@ -79,6 +79,69 @@ def prepare_router():
     return router
 
 
+def probe_router(answer_seq: list[str]):
+    """同 prepare_router，但答题按给定序列出、出题按轮次回数（首轮 2好+1坏，追题轮只回 2 好），
+    测自适应追题：飘→追→稳/封顶。"""
+    base = prepare_router()
+    it = iter(answer_seq)
+    quiz_calls = {"n": 0}
+
+    def router(system: str, user: str):
+        if "测评出题专家" in system:
+            quiz_calls["n"] += 1
+            risk = "团队不合" if "团队不合" in user else "主动离职"
+            if quiz_calls["n"] == 1:
+                return {"questions": [_good_q(risk), _good_q(risk), _bad_q(risk)]}
+            return {"questions": [_good_q(risk), _good_q(risk)]}    # 追题轮：2 道全好变体
+        if "扮演一位真实求职者" in system:
+            return {"choice": next(it, "A"), "why": "我会这么做。"}
+        return base(system, user)
+    return router
+
+
+class AdaptiveProbeTest(unittest.TestCase):
+    """自适应追题（作者 2026-06-12 拍）：低置信→+2 全好变体→仍低→最后+2→封顶诚实判低。
+    选项风险值：A=低(1) D=高(3)，全好题答 A/D 交替=飘（极差 2>1.0 → 低置信）。"""
+
+    def setUp(self):
+        self._orig_out = config.OUTPUT_DIR
+        self._tmp = tempfile.mkdtemp()
+        config.OUTPUT_DIR = pathlib.Path(self._tmp)
+        self.dims = [prepare.quiz_gen.DIMENSIONS[0]]   # 单维即可证明机制
+
+    def tearDown(self):
+        config.OUTPUT_DIR = self._orig_out
+
+    def _run(self, answer_seq):
+        llm = FakeLLM(router=probe_router(answer_seq))
+        result = prepare.prepare_case(llm, "JD158_新媒体运营经理", "CV1_林女士",
+                                      n_good=2, n_bad=1, dims=self.dims)
+        return result["portrait"]["scores"][0]
+
+    def test_wobble_to_cap_stays_low_honestly(self):
+        # 初测 A,D（飘）+坏题A；追1轮答 D,A 仍飘；追2轮答 A,D 仍飘 → 封顶 7 题、诚实低置信
+        s = self._run(["A", "D", "A", "D", "A", "A", "D"])
+        self.assertEqual(s["probe_rounds"], 2)
+        self.assertEqual(s["n_questions"], 7)
+        self.assertEqual(s["probe_trail"], ["低", "低", "低"])
+        self.assertEqual(s["confidence"], "低")       # 追满仍飘＝低，不准为好看硬编
+
+    def test_majority_stabilizes_rescues_to_mid_not_high(self):
+        # 初测 A,D（飘）+坏题A；追1轮答 A,A → 全好 [1,3,1,1] 多数稳 → 升"中"（封顶中，不给高）且停止追题
+        s = self._run(["A", "D", "A", "A", "A"])
+        self.assertEqual(s["probe_rounds"], 1)
+        self.assertEqual(s["n_questions"], 5)
+        self.assertEqual(s["probe_trail"], ["低", "中"])
+        self.assertEqual(s["confidence"], "中")
+
+    def test_stable_answers_no_probe(self):
+        # 答得稳：不触发追题，题量=初始 3
+        s = self._run(["A", "A", "A"])
+        self.assertEqual(s["probe_rounds"], 0)
+        self.assertEqual(s["n_questions"], 3)
+        self.assertEqual(s["confidence"], "高")
+
+
 class PrepareCaseTest(unittest.TestCase):
     def setUp(self):
         self._orig_out = config.OUTPUT_DIR

@@ -13,7 +13,8 @@
 ### 环境
 
 - **Python 3.x，stdlib 零第三方依赖**（HTTP 客户端、服务器、JSON 全用标准库；`requirements.txt` 都没有）。
-- **必需 `DEEPSEEK_API_KEY`**：本系统 **live-only，无 mock 回退**——没有 key 就直接报错，不会用假数据顶替。
+- **必需三把 API Key**（2026-06-12 起多模型分工，见 `config.ROLES`）：`DEEPSEEK_API_KEY`（导演=deepseek-v4-pro）、`MOONSHOT_API_KEY`（编剧=kimi-k2.6：出题/蒸馏/搭团队/场景/答卷）、`SILICONFLOW_API_KEY`（演员=Qwen3.6-35B-A3B + 审计=GLM-5.1，一把 key 两个工种）。本系统 **live-only，无 mock 回退**——缺 key 直接报错，不会用假数据顶替。
+- **工种分工的设计思想**：编剧要文笔（中文创意第一档）、导演要推理深度、演员要快且人设稳（海量调用+直播）、审计要指令遵循且**与演员/编剧不同源**（异构独立审计，不让模型自己批改自己的作业）；答卷模型也刻意与沙盘演员不同源，免得"自陈 vs 行为"的落差变成同一模型自说自话。沿用 RELATE-Sim 双模型分工思路（GPT-OSS-120b 蒸馏 + Qwen3-32B 跑模拟）并细化到四工种。
 - Windows 终端先设 UTF-8（本机 stdout 默认 gbk）：
 
   ```powershell
@@ -22,7 +23,7 @@
 
 ### 主命令
 
-> ⚠ 除 `--help` 和测试外，下列命令都会真调 DeepSeek（花钱）。
+> ⚠ 除 `--help` 和测试外，下列命令都会真调大模型（花钱，按 `config.ROLES` 分工走三家）。
 
 - **操作台（主秀，直播看推演）**：
   ```
@@ -71,8 +72,8 @@ python -m unittest discover -s tests
 
 ```
 sandbox3/
-├── config.py          全局常量：模型 deepseek-chat、端口 8781、换序三问轮数 3、每幕回合上限 3、名单上限 6
-├── llm.py             DeepSeek 客户端（live-only，重试 2 次后大声抛 LLMError，无 mock 分支）
+├── config.py          全局常量：ENDPOINTS/ROLES 多模型分工表、端口 8781、换序三问轮数 3、每幕回合上限 3、名单上限 6
+├── llm.py             多模型客户端 LLMClient(role)（live-only，重试 2 次后大声抛 LLMError，无 mock 分支；含各家特例：kimi 锁温、qwen 关思考、glm/v4-pro 抬 token 地板）
 ├── states.py          八状态灯（职场版）+ 枚举校验 + 差量应用 + 下一幕类别启发式
 ├── cast.py            名单制角色注册表（Cast/Card）；候选人有且仅有 1 个，2-6 人
 ├── ledger.py          滚动台账：时间戳 + 在场者 witnesses + 知情过滤（防火墙数据层）
@@ -100,7 +101,7 @@ sandbox3/
 设计要点：
 
 - **名单制 Cast**（多人原生底座，双人 = N=2 是特例）：引擎显式接收 Cast 对象，无模块全局名单变量；候选人=观察主体，有且仅有一个。
-- **依赖注入 LLM**：运行时唯一路径是 DeepSeek live；测试以 `FakeLLM` 注入（`tests/`），不开运行时分支。
+- **依赖注入 LLM**：运行时唯一路径是 live（四工种按 `config.ROLES` 各配各家）；测试以 `FakeLLM` 注入（`tests/`，引擎的 `actor_llm`/`audit_llm` 缺省回落 `llm`，单替身即可），不开运行时分支。
 - **引擎-前端经 emit 事件流解耦**：事件类型 `run_started/status/scene_open/beat_open/inner/decision/audit/settle/consequence/next_tp/done/saved/error`，操作台轮询 `/api/events?since=N` 消费。
 - **八状态灯（职场版）**：冲突 / 修复结果 / 角色清晰度 / 投入绑定 / 外部机会 / 变动 / 团队接纳 / 离职信号，差量制（只接收本幕有证据要变的灯，其余沿用上一幕）。
 

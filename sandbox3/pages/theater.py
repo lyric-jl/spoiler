@@ -380,13 +380,15 @@ function renderPortrait(pt){
   const det=document.getElementById('portrait-details');if(det)det.open=true;
   const rows=pt.scores.map(s=>{
     const lean=s.lean!=null?`${esc(s.lean_label)}（${esc(s.lean)}）`:'未知';
+    const nq=s.n_questions!=null?s.n_questions:((s.n_good||0)+(s.n_bad||0));
+    const probe=s.probe_rounds?`${nq}（追${s.probe_rounds}轮：${esc((s.probe_trail||[]).join('→'))}）`:`${nq}`;
     return `<tr><td class="k">${esc(s.dim)}</td><td style="color:var(--muted)">${esc(s.risk)}</td>
-      <td><b>${lean}</b></td><td>${esc(s.confidence)}</td></tr>`}).join('');
+      <td><b>${lean}</b></td><td>${esc(s.confidence)}</td><td>${probe}</td></tr>`}).join('');
   el.innerHTML=`<div style="font-size:11.5px;color:var(--muted);margin-bottom:4px">候选人：<b>${esc(pt.name||'')}</b>`+
     `（${esc(pt.cv_id||'')}）· 出题源 ${esc(pt.jd_id||'')}</div>`+
-    `<table class="states"><tr><td class="k">维度</td><td>风险</td><td>倾向</td><td>置信</td></tr>${rows}</table>`+
+    `<table class="states"><tr><td class="k">维度</td><td>风险</td><td>倾向</td><td>置信</td><td>题量（追题）</td></tr>${rows}</table>`+
     `<div class="portrait-tip">⚠ 倾向＝她"答出来的样子"、非真实风险高低；模型扮演候选人作答、非真人，不构成预测。`+
-    `低置信是常态（自陈天生薄）。</div>`;
+    `低置信是常态（自陈天生薄）。题量带「追N轮」＝作答飘、系统自动加题探测；追满仍飘则诚实判低。</div>`;
 }
 
 /* ---- 5-run 聚合视图（数据来自命令行 aggregate 的最新批次） ---- */

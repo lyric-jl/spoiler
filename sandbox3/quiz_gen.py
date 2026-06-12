@@ -1,9 +1,8 @@
 # sandbox3/quiz_gen.py
-"""测评卷出题器（AIG）：JD + 目标维度 + 价值（全好/全坏）→ DeepSeek 生成情境迫选题。
+"""测评卷出题器（AIG）：JD + 目标维度 + 价值（全好/全坏）→ 编剧模型生成情境迫选题。
 
-这是"AI 按 JD 自动出迫选题"产品能力的最小实现，目的是验证 *产品自家的 LLM*
-（DeepSeek，不是 Opus）在咱们栈上出题到什么水平。live-only，复用 DeepSeekClient，
-失败大声抛/标，绝不用假题冒充。
+这是"AI 按 JD 自动出迫选题"产品能力的最小实现。出题走编剧模型（config.ROLES writer，
+中文文笔档），live-only，失败大声抛/标，绝不用假题冒充。
 
 设计依据：契合沙盘-测评卷设计spec-20260608.md（9 维＝团队不合4+离职5、情境迫选、全好~70%/全坏~30%、
 两层答案键）。团队不合 4 维带"金标题"few-shot 锚质量；离职 5 维暂无金标题（照实标）。
@@ -17,8 +16,8 @@ import pathlib
 import sys
 import time
 
-from .config import DATA_DIR, OUTPUT_DIR
-from .llm import DeepSeekClient, LLMError
+from .config import DATA_DIR, OUTPUT_DIR, ROLES
+from .llm import LLMClient, LLMError
 
 JD_DIR = DATA_DIR / "jd_samples"
 
@@ -208,7 +207,7 @@ def _bad_leak(qs) -> str:
     return ""
 
 
-def gen_dimension(client: DeepSeekClient, jd: dict, dim: dict,
+def gen_dimension(client: LLMClient, jd: dict, dim: dict,
                   n_good: int, n_bad: int, tries: int = 3) -> list[dict]:
     user = USER_TMPL.format(
         职位名称=jd.get("职位名称", ""), 职类名称=jd.get("职类名称", ""),
@@ -245,12 +244,12 @@ def gen_dimension(client: DeepSeekClient, jd: dict, dim: dict,
 
 
 def render_md(jd: dict, by_dim: dict, failed: list[str]) -> str:
-    lines = [f"# 测评卷（AIG 真跑·DeepSeek 出题）· {jd.get('职位名称','')}",
+    lines = [f"# 测评卷（AIG 真跑·编剧模型出题）· {jd.get('职位名称','')}",
              "",
              f"> 出题源 JD：**{jd.get('_jd_id','')}** {jd.get('职位名称','')}"
              f"（{jd.get('职类名称','')}／{jd.get('城市要求','')}／{jd.get('薪资','')}）——"
              f"{jd.get('_源','真实脱敏数据')}",
-             "> 出题模型：**DeepSeek-chat（产品自家栈，非 Opus）**；设计依据 spec=契合沙盘-测评卷设计spec-20260608.md。",
+             f"> 出题模型：**{ROLES['writer'][1]}（编剧工种，产品自家栈）**；设计依据 spec=契合沙盘-测评卷设计spec-20260608.md。",
              "> 键说明：`dim_tendency`=维度倾向（设计层，现可用）／`risk_dir`=风险先验方向（研究先验，**未经真实结局校准**）。",
              ""]
     if failed:
@@ -295,7 +294,7 @@ def main(argv=None):
     if args.dims:
         want = {x.strip() for x in args.dims.split(",")}
         dims = [d for d in DIMENSIONS if d["id"] in want]
-    client = DeepSeekClient()
+    client = LLMClient("writer")
 
     by_dim: dict[str, list] = {}
     failed: list[str] = []

@@ -14,7 +14,7 @@ import pathlib
 import sys
 
 from .config import DATA_DIR
-from .llm import DeepSeekClient, LLMError
+from .llm import LLMClient, LLMError
 from .scenes import _PRESET_PATH
 from .quiz_gen import load_jd
 
@@ -61,7 +61,7 @@ def _bad(scenes, skel) -> str:
     return ""
 
 
-def gen_scenes(client: DeepSeekClient, jd: dict, skel: list[dict], tries: int = 3) -> list[dict]:
+def gen_scenes(client: LLMClient, jd: dict, skel: list[dict], tries: int = 3) -> list[dict]:
     skeleton_txt = "\n".join(
         f"- id={s['id']} | 类别={s['category']} | 标题={s['title']} | 原戏核(后端版·只作参考)：{s['sketch']}"
         for s in skel)
@@ -93,7 +93,7 @@ def main(argv=None):
 
     jd = load_jd(args.jd)
     skel = load_skeleton()
-    client = DeepSeekClient()
+    client = LLMClient("writer")
     print(f"按 JD「{jd.get('职位名称','')}」重着色 {len(skel)} 幕场景…", file=sys.stderr)
     scenes = gen_scenes(client, jd, skel)
 

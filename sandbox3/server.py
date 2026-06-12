@@ -9,7 +9,8 @@ POST /api/run 开拍；/api/chat 场景共创；/api/crystallize 共创结晶入
 用法：python -m sandbox3.server [--port 8781]
 
 依赖注入边界（非 mock）：模块级 LLM / CAST / BANK 是可替换的全局对象——
-测试以 `sandbox3.server.LLM = FakeLLM(...)` 注入；产品路径唯一=DeepSeek live。
+测试以 `sandbox3.server.LLM = FakeLLM(...)` 注入；产品路径唯一=live（多模型分工见 config.ROLES）。
+ACTOR_LLM/AUDIT_LLM/WRITER_LLM 缺省 None＝回落 LLM（测试只注入 LLM 即可），main() 启动时按工种实配。
 并发纪律：单进程一个 BANK 实例；/api/crystallize 走 BANK.add_custom 必须在 LOCK 内
 （add_custom 的 id 生成依赖内存计数，双实例/并发必撞号）。"""
 from __future__ import annotations
@@ -21,14 +22,17 @@ from . import config
 from . import prepare
 from .cast import Cast, CastError
 from .engine import run_simulation
-from .llm import DeepSeekClient, LLMError
+from .llm import LLMClient, LLMError
 from .prompts import sm as PS
 from .scenes import SceneBank
 from .trace import save_run
 from .pages.theater import PAGE
 
 # ---- 可替换的模块级全局（依赖注入口；推演中 CAST 不可换） ----
-LLM = DeepSeekClient()
+LLM = LLMClient("director")
+ACTOR_LLM = None        # main() 实配 LLMClient("actor")；None=回落 LLM（测试态）
+AUDIT_LLM = None        # main() 实配 LLMClient("auditor")
+WRITER_LLM = None       # main() 实配 LLMClient("writer")，备料管线用
 CAST = Cast.load_default()
 BANK = SceneBank()
 
@@ -57,6 +61,7 @@ def _run_thread(cfg: dict) -> None:
         with LOCK:
             jd = STATE["jd_text"] or STATE["jd"]
         trace = run_simulation(cast=CAST, llm=LLM, bank=BANK,
+                               actor_llm=ACTOR_LLM or LLM, audit_llm=AUDIT_LLM or LLM,
                                n_scenes=cfg["scenes"], start_tp=cfg["start"],
                                seed=cfg.get("seed"), jd=jd, emit=_emit)
         out_dir = save_run(trace, jd=jd)
@@ -92,7 +97,7 @@ def _apply_prepared(result: dict) -> None:
 
 def _prep_thread(jd_name: str, cv_name: str) -> None:
     try:
-        result = prepare.prepare_case(LLM, jd_name, cv_name, progress=_prep_log)
+        result = prepare.prepare_case(WRITER_LLM or LLM, jd_name, cv_name, progress=_prep_log)
         _apply_prepared(result)
         _prep_log("✓ 名单与场景已就位，可开始推演")
     except Exception as e:                                   # noqa: BLE001 备料失败必须亮到页面
@@ -270,9 +275,14 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    global ACTOR_LLM, AUDIT_LLM, WRITER_LLM
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=config.SERVER_PORT)
     args = ap.parse_args()
+    # 正式启动＝四工种实配（测试不走 main，只注入 LLM、其余回落）
+    ACTOR_LLM = LLMClient("actor")
+    AUDIT_LLM = LLMClient("auditor")
+    WRITER_LLM = LLMClient("writer")
     srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     print(f"操作台已起：http://127.0.0.1:{args.port}/  （Ctrl+C 停）", flush=True)
     srv.serve_forever()

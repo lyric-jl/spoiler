@@ -4,7 +4,7 @@
 承接作者 2026-06-09 决策"团队纯 JD 现搭原型"：候选人来自测评卷画像（另一条路、不在此），
 团队同事不答测评卷——按 JD 的真实团队语境（带谁、跟谁跨部门、向谁汇报、典型冲突）现生成
 角色原型。诚实口径（随产物走）：这是"代表性团队 / 原型"，性格为可信虚构、非真人；
-真实部署可换成公司自有员工数据（他评 / 绩效 / 360）。live-only，复用 DeepSeekClient，
+真实部署可换成公司自有员工数据（他评 / 绩效 / 360）。live-only，走编剧模型（config.ROLES writer），
 失败大声抛 / 标，绝不用空卡冒充。
 
 输出可直接喂沙盘：python -m sandbox3.run --cast output/team_xxx/cast_runnable.json
@@ -19,7 +19,7 @@ import time
 
 from .config import DATA_DIR, OUTPUT_DIR, MAX_CAST
 from .cast import Cast, CastError
-from .llm import DeepSeekClient, LLMError
+from .llm import LLMClient, LLMError
 from .quiz_gen import load_jd  # 复用 JD 加载（带或不带 .json / 完整路径）
 
 # ---- 金标卡（few-shot）：默认名单里的"沈雯"，锚住人设/手册的"活人感"与写法 ----
@@ -186,7 +186,7 @@ def main(argv=None):
     cand = load_candidate(pathlib.Path(args.candidate) if args.candidate
                           else DATA_DIR / "cast_default.json")
 
-    client = DeepSeekClient()
+    client = LLMClient("writer")
     print(f"按 JD「{jd.get('职位名称','')}」现搭 {args.others} 人团队"
           f"（1 上级 + {args.others - 1} 同事）…", file=sys.stderr)
     team = gen_team(client, jd, args.others, cand)

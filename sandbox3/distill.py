@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse, json, pathlib
 
 from .cast import Cast
-from .llm import DeepSeekClient
+from .llm import LLMClient
 from .prompts import distill as DP
 
 
@@ -33,7 +33,7 @@ def main() -> None:
     ap.add_argument("--name", default=None, help="候选人真实姓名（姓名是事实，显式指定，不靠 LLM 蒸馏）")
     args = ap.parse_args()
     jd = pathlib.Path(args.jd).read_text(encoding="utf-8") if args.jd else ""
-    card = distill(DeepSeekClient(), pathlib.Path(args.material_dir), jd, name=args.name)
+    card = distill(LLMClient("writer"), pathlib.Path(args.material_dir), jd, name=args.name)
     out = pathlib.Path(args.out or "card.json")
     out.write_text(json.dumps(card, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"角色卡已写出：{out}（导入操作台或 --cast 即用，引擎一行不改）")

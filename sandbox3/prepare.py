@@ -5,7 +5,7 @@
 被 server.py 的 /api/prepare 在后台线程调用；也可独立复用（"一键启动"的前半）。
 产物落 output/cases/<jdid>__<cvid>/（git 已忽略 output/），供"秒加载预备案例"复现。
 
-诚实口径（随产物走）：全程 live、每步真调 DeepSeek，失败大声抛/标，绝不空卡空题冒充；
+诚实口径（随产物走）：全程 live、每步真调大模型（备料五步全走编剧模型），失败大声抛/标，绝不空卡空题冒充；
 答卷是模型**扮演**候选人的猜答、非真人作答，不构成对真实结局的预测。
 """
 from __future__ import annotations
@@ -146,12 +146,32 @@ def prepare_case(client, jd_name: str, cv_name: str, *, n_good: int = 2, n_bad: 
             failed_dims.append(dim["id"])
             progress(f"⚠ 维度[{dim['id']}]反复出不合格题/答题失败，已跳过：{type(e).__name__}: {e}")
             continue
+        sc = quiz_answer.score_dim(dim["id"], dim["risk"], al)
+        # 自适应追题（作者 2026-06-12 拍）：只有"低置信"触发；追 2 道全好变体重算，仍低再追
+        # 最后一轮 2 道；封顶（3+2+2=7 题）后还飘就诚实判低——别逼出假置信。
+        # 全好变体：换情境不换考点；不追全坏（部分维度全坏天生难出，别把追题拖死）。
+        trail = [sc["confidence"]]
+        try:
+            for probe in (1, 2):
+                if sc["confidence"] != "低":
+                    break
+                progress(f"  ↳ 追题：{dim['id']} 第{probe}轮 +2（作答飘，自适应探测）")
+                more = quiz_gen.gen_dimension(client, jd, dim, 2, 0, tries=3)
+                qs.extend(more)
+                al.extend(quiz_answer.answer_one(client, persona, q) for q in more)
+                sc = quiz_answer.score_dim(dim["id"], dim["risk"], al)
+                trail.append(sc["confidence"])
+        except Exception as e:                       # noqa: BLE001 追题失败不连坐本维：按已答计分、明着标
+            progress(f"⚠ 维度[{dim['id']}]追题中途失败，按已答 {len(al)} 题计分：{type(e).__name__}: {e}")
+        sc["n_questions"] = len(al)
+        sc["probe_rounds"] = len(trail) - 1
+        sc["probe_trail"] = trail                    # 例 ["低","低","中"]：两次追题后多数稳定
         quiz_by_dim[dim["id"]] = qs
         answers_by_dim[dim["id"]] = al
-        scores.append(quiz_answer.score_dim(dim["id"], dim["risk"], al))
+        scores.append(sc)
 
     if not scores:
-        raise quiz_gen.LLMError(f"全部 {len(dims)} 维出题/答题都失败，无可用画像——查 DEEPSEEK_API_KEY 或稍后重试")
+        raise quiz_gen.LLMError(f"全部 {len(dims)} 维出题/答题都失败，无可用画像——查编剧模型的 API Key 或稍后重试")
     if failed_dims:
         progress(f"⚠ 画像 {len(scores)}/{len(dims)} 维成功，跳过：{'、'.join(failed_dims)}（其余照常）")
 

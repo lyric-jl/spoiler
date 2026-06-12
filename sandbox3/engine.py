@@ -2,7 +2,8 @@
 """推演循环（名单制多人原生底座；蓝本=relate_mvp engine.py，机制行为等价迁移）。
 机制清单：受控选项决策 / 换序三问取多数票 / 差量状态灯 / 防火墙（知情过滤）/
 理由审计（独立调用）/ 台账时间线 / 后果结算 / ≥3灯黄旗。
-依赖注入：run_simulation(cast=名单, llm=客户端, bank=场景库)——测试喂 FakeLLM，运行时唯一路径=DeepSeek live。"""
+依赖注入：run_simulation(cast=名单, llm=导演客户端, bank=场景库, actor_llm=演员, audit_llm=审计)——
+actor_llm/audit_llm 缺省回落 llm（测试喂单个 FakeLLM 即可），运行时按 config.ROLES 分工 live。"""
 from __future__ import annotations
 import random
 import sys
@@ -93,8 +94,8 @@ def _vote_decision(*, llm, cast: Cast, actor: str, internal_thoughts: str, scene
     return dec, votes, summary
 
 
-def _run_beat(*, llm, cast: Cast, beat_no: int, scene_idx: int, scene: dict, tp: dict,
-              ledger: list[dict], state: dict, transcript: list[str],
+def _run_beat(*, llm, actor_llm, audit_llm, cast: Cast, beat_no: int, scene_idx: int,
+              scene: dict, tp: dict, ledger: list[dict], state: dict, transcript: list[str],
               rng: random.Random, counters: dict, emit) -> dict | None:
     emit({"type": "status", "text": "场景导演正在把剧情推进到节骨眼…"})
     adv = llm.complete_json(PS.advance_system(cast),
@@ -135,9 +136,9 @@ def _run_beat(*, llm, cast: Cast, beat_no: int, scene_idx: int, scene: dict, tp:
     vis_ledger = visible(ledger, actor)
     hid_ledger = [e for e in ledger if e not in vis_ledger]
     emit({"type": "status", "text": f"{actor} 心里正在过这件事…"})
-    appr = llm.complete_json(PA.appraisal_system(cast, actor),
-                             PA.appraisal_user(scene, transcript, narration,
-                                               beat["juncture"], vis_ledger))
+    appr = actor_llm.complete_json(PA.appraisal_system(cast, actor),
+                                   PA.appraisal_user(scene, transcript, narration,
+                                                     beat["juncture"], vis_ledger))
     counters["calls"] += 1
     beat["appraisal"] = appr
     emit({"type": "inner", "scene": scene_idx, "beat": beat_no, "actor": actor,
@@ -146,7 +147,7 @@ def _run_beat(*, llm, cast: Cast, beat_no: int, scene_idx: int, scene: dict, tp:
 
     emit({"type": "status", "text": f"{actor} 正在换序三问中作答（防位置偏置，取多数票）…"})
     dec, votes, vote_summary = _vote_decision(
-        llm=llm, cast=cast, actor=actor,
+        llm=actor_llm, cast=cast, actor=actor,
         internal_thoughts=appr.get("internal_thoughts", ""), scene=scene,
         transcript=transcript, narration=narration, juncture=beat["juncture"],
         vis_ledger=vis_ledger, presentations=rounds, warnings=beat["warnings"])
@@ -163,7 +164,7 @@ def _run_beat(*, llm, cast: Cast, beat_no: int, scene_idx: int, scene: dict, tp:
                      "position": v["position"], "confidence": v["confidence"]} for v in votes]})
 
     emit({"type": "status", "text": "理由审计员正在对账…"})
-    audit, awarns = AU.run_audit(llm, cast, actor=actor,
+    audit, awarns = AU.run_audit(audit_llm, cast, actor=actor,
                                  internal_thoughts=appr.get("internal_thoughts", ""),
                                  scene=scene, transcript=transcript, narration=narration,
                                  juncture=beat["juncture"], visible_ledger=vis_ledger,
@@ -185,9 +186,13 @@ def _run_beat(*, llm, cast: Cast, beat_no: int, scene_idx: int, scene: dict, tp:
 
 
 def run_simulation(*, cast: Cast, llm, bank, n_scenes: int = 4, start_tp: str = "C1-01",
-                   seed: int | None = None, jd: str = "", emit=None) -> dict:
-    """跑一条推演轨迹。emit(event_dict)=直播回调（None 则静默）。"""
+                   seed: int | None = None, jd: str = "", emit=None,
+                   actor_llm=None, audit_llm=None) -> dict:
+    """跑一条推演轨迹。emit(event_dict)=直播回调（None 则静默）。
+    llm=导演（SM 五件）；actor_llm=演员（情绪+决策）；audit_llm=审计——后两者缺省回落 llm。"""
     emit = emit or (lambda e: None)
+    actor_llm = actor_llm or llm
+    audit_llm = audit_llm or llm
     rng = random.Random(seed)
     state = initial_state()
     ledger: list[dict] = []
@@ -224,7 +229,8 @@ def run_simulation(*, cast: Cast, llm, bank, n_scenes: int = 4, start_tp: str = 
         transcript: list[str] = []
         beats: list[dict] = []
         for b in range(1, MAX_BEATS + 1):
-            beat = _run_beat(llm=llm, cast=cast, beat_no=b, scene_idx=idx + 1, scene=scene,
+            beat = _run_beat(llm=llm, actor_llm=actor_llm, audit_llm=audit_llm, cast=cast,
+                             beat_no=b, scene_idx=idx + 1, scene=scene,
                              tp=tp, ledger=ledger, state=state, transcript=transcript,
                              rng=rng, counters=counters, emit=emit)
             if beat is None:
@@ -328,7 +334,11 @@ def run_simulation(*, cast: Cast, llm, bank, n_scenes: int = 4, start_tp: str = 
             vote_stats[bt["vote_summary"]["verdict"]] += 1
             for v in bt["votes"]:
                 pos_counts[v["position"]] = pos_counts.get(v["position"], 0) + 1
-    trace = {"meta": {"model": "deepseek-chat", "n_scenes": len(scenes),
+    trace = {"meta": {"model": getattr(llm, "model", "fake"),
+                      "models": {"director": getattr(llm, "model", "fake"),
+                                 "actor": getattr(actor_llm, "model", "fake"),
+                                 "auditor": getattr(audit_llm, "model", "fake")},
+                      "n_scenes": len(scenes),
                       "n_llm_calls": counters["calls"], "seed": seed, "max_beats": MAX_BEATS,
                       "cast": [{"name": c.name, "kind": c.kind} for c in cast.members()],
                       "candidate": cast.candidate().name,

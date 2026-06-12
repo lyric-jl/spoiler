@@ -1,7 +1,8 @@
 # sandbox3/quiz_answer.py
 """模拟答题 + 计分→维度画像：候选人 persona 答 quiz_gen 出的卷 → 9 维倾向+置信 + 作答记录。
 
-诚实口径（随产物走）：答案是 DeepSeek **扮演**给定 persona 的"猜答"、非真人作答；本模块跑通的是
+诚实口径（随产物走）：答案是编剧模型 **扮演**给定 persona 的"猜答"、非真人作答（刻意与沙盘演员
+不同源，免得"自陈 vs 行为"的落差变成同一模型自说自话）；本模块跑通的是
 "测评→画像"这一接，**不构成对真实作答/真实结局的预测**。置信=同维多题作答稳定度（spec 形态1：飘则低）。
 答题时**对模型隐藏选项的维度键/风险键**（只给题干+选项文本），避免它照标签作弊。live-only。
 
@@ -15,7 +16,7 @@ import sys
 import time
 
 from .config import OUTPUT_DIR
-from .llm import DeepSeekClient
+from .llm import LLMClient
 
 RISK_VAL = {"低": 1.0, "中": 2.0, "中高": 2.5, "高": 3.0}
 LEAN_LABEL = {1: "低", 2: "中", 3: "高"}
@@ -64,7 +65,10 @@ def answer_one(client: DeepSeekClient, persona: str, q: dict) -> dict:
 
 def score_dim(dim_id: str, risk: str, ans_list: list[dict]) -> dict:
     """全好题选中项=她的倾向（risk_dir 越高越偏风险端）；全坏题选中=她最排斥的坏法（反向信号，单列）。
-    置信=全好题内部一致度（极差小=稳=高置信，spec 形态1）。"""
+    置信=全好题内部一致度（极差小=稳=高置信，spec 形态1）。
+    追题语境补充（2026-06-12）：极差是"一票否决"——答过一次极端就永远洗不掉，追题会沦为走过场。
+    故 ≥4 题（只有追题后才到得了）时看"多数"：多数答案聚在一处、只有早先离群的，按多数升"中"；
+    但曾飘过不给"高"（诚实封顶）。"""
     good = [a for a in ans_list if a["价值"] == "全好"]
     bad = [a for a in ans_list if a["价值"] == "全坏"]
     good_vals = [RISK_VAL.get((a["chosen"].get("risk_dir") or "").strip(), 2.0) for a in good]
@@ -73,6 +77,11 @@ def score_dim(dim_id: str, risk: str, ans_list: list[dict]) -> dict:
     if len(good_vals) >= 2:
         spread = max(good_vals) - min(good_vals)
         conf = "高" if spread <= 0.5 else "中" if spread <= 1.0 else "低"
+        if conf == "低" and len(good_vals) >= 4:
+            med = sorted(good_vals)[len(good_vals) // 2]
+            share = sum(1 for v in good_vals if abs(v - med) <= 0.5) / len(good_vals)
+            if share >= 0.75:
+                conf = "中"                  # 多数稳、个别离群：升中不升高
     elif good_vals:
         conf = "中"                          # 单题，证据薄
     else:
@@ -93,14 +102,18 @@ def render_portrait_md(cv: dict, jd: dict, scores: list[dict]) -> str:
          f"（{cv.get('_cv_id','')} 虚构脱敏简历）。",
          "> ⚠ 答案是 DeepSeek **扮演**该候选人的猜答、**非真人作答**；本表是"
          "\"测评→画像\"机制的产物，**不构成对真实作答/真实结局的预测**。",
-         "> 倾向＝她全好题选中项的风险端均值（低/中/高）；置信＝同维全好题作答稳定度（飘则低）。", "",
-         "| 风险 | 维度 | 倾向 | 置信 | 她最像的做法（全好选中） | 她最排斥的坏法（全坏选中） |",
-         "|---|---|---|---|---|---|"]
+         "> 倾向＝她全好题选中项的风险端均值（低/中/高）；置信＝同维全好题作答稳定度（飘则低）；"
+         "题量列带「追N轮」＝作答飘、系统自适应追题的轨迹（追满仍飘则诚实判低）。", "",
+         "| 风险 | 维度 | 倾向 | 置信 | 题量（追题） | 她最像的做法（全好选中） | 她最排斥的坏法（全坏选中） |",
+         "|---|---|---|---|---|---|---|"]
     for s in scores:
         likes = "；".join(p["tend"] or "" for p in s["good_picks"]) or "—"
         rej = "；".join(r["tend"] or "" for r in s["rejects"]) or "—"
         lean = f"{s['lean_label']}（{s['lean']}）" if s["lean"] is not None else "未知"
-        L.append(f"| {s['risk']} | {s['dim']} | {lean} | {s['confidence']} | {likes} | {rej} |")
+        nq = s.get("n_questions", s["n_good"] + s["n_bad"])
+        pr = s.get("probe_rounds", 0)
+        probe = f"{nq} 题（追{pr}轮：{'→'.join(s.get('probe_trail', []))}）" if pr else f"{nq} 题"
+        L.append(f"| {s['risk']} | {s['dim']} | {lean} | {s['confidence']} | {probe} | {likes} | {rej} |")
     L += ["", "> 读法：倾向是「她答出来的样子」、不是「她真的风险有多高」——后者要等沙盘外推 + 真实结局校准（见 risk_card / spec §4）。"]
     return "\n".join(L)
 
@@ -134,7 +147,7 @@ def main(argv=None):
         raise SystemExit(f"{args.quiz} 里没有 by_dim（题目）")
 
     persona = persona_block(cv)
-    client = DeepSeekClient()
+    client = LLMClient("writer")
     answers_by_dim: dict[str, list] = {}
     scores: list[dict] = []
     for i, (dim_id, qs) in enumerate(by_dim.items(), 1):

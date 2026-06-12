@@ -121,7 +121,7 @@ def main() -> None:
     cfg = {"scenes": args.scenes, "start": args.start, "seed": args.seed}
 
     from .cast import Cast
-    from .llm import DeepSeekClient
+    from .llm import LLMClient
     from .scenes import SceneBank
     from .config import OUTPUT_DIR
 
@@ -141,7 +141,8 @@ def main() -> None:
         try:
             bank = (SceneBank(preset_path=bank_path, custom_path=pathlib.Path("__no_custom__"))
                     if bank_path else SceneBank())
-            return run_simulation(cast=cast, llm=DeepSeekClient(), bank=bank,
+            return run_simulation(cast=cast, llm=LLMClient("director"), bank=bank,
+                                  actor_llm=LLMClient("actor"), audit_llm=LLMClient("auditor"),
                                   n_scenes=args.scenes, start_tp=args.start,
                                   seed=args.seed + i, jd=jd_text)
         except Exception as e:
