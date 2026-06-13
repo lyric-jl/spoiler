@@ -78,7 +78,7 @@ def aggregate(traces: list[dict]) -> dict:
 
 
 def render_aggregate(agg: dict, cfg: dict) -> str:
-    out = ["# 契合沙盘 · 5-run 聚合报告", "",
+    out = ["# SPOILER · 5-run 聚合报告", "",
            f"- 配置：{agg['n_runs']} 局 × {cfg['scenes']} 幕，起始 {cfg['start']}，"
            f"seed 基值 {cfg['seed']}（逐局 +1）；节骨眼合计 {agg['beats_total']} 个",
            f"- ⚠ {agg['footnote']}", "",

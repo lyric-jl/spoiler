@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SPOILER · 情境测评卷</title>
+<!-- 真人测评答题页（第二批 2026-06-13）：与讲解演示页 quizdemo.html 是两个页（讲解页保留不动）。
+     候选人视角：①开始→后端按 JD 现编整卷（/api/quiz_build 并行，轮询 /api/quiz_state）；
+     ②真人逐题选——**不显示倾向/风险标签、不显示计分、不显示追题原因**（红线：防照标签作答）；
+     ③答得飘静默触发追题（/api/quiz_score 判置信→/api/quiz_probe 现编补充题，候选人只看到"补充几道"）；
+     ④右上角导出→/api/quiz_export 渲染答卷.md→浏览器下载，拿去拖进星空首页跑项目。
+     出题只在这条线发生，首页绝不出题（边界红线）。live-only：失败明着报。 -->
+<style>
+  :root { --ink:#1a1a1a; --mute:#888; --line:#e5e5e5; --sel:#1a1a1a; --amber:#b35900; --err:#b00020; }
+  * { box-sizing:border-box; }
+  body { background:#fff; color:var(--ink); font:16px/1.9 "Microsoft YaHei", system-ui, sans-serif;
+    margin:0; padding:0; }
+  .topbar { position:sticky; top:0; z-index:10; background:rgba(255,255,255,.94); backdrop-filter:blur(6px);
+    border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px;
+    padding:12px 24px; }
+  .topbar .t { font-size:15px; font-weight:600; letter-spacing:.02em; }
+  .topbar .grow { flex:1; }
+  .topbar input { border:1px solid var(--line); border-radius:6px; padding:6px 10px; font:14px inherit;
+    width:130px; outline:none; }
+  .topbar input:focus { border-color:#888; }
+  .btn { border:1px solid var(--ink); background:var(--ink); color:#fff; border-radius:6px;
+    padding:7px 16px; font:14px inherit; cursor:pointer; }
+  .btn:disabled { background:#fff; color:#bbb; border-color:var(--line); cursor:not-allowed; }
+  .btn.ghost { background:#fff; color:var(--ink); }
+  .wrap { max-width:640px; margin:0 auto; padding:40px 16px 120px; }
+  h1 { font-size:22px; font-weight:600; margin:0 0 6px; }
+  .sub { color:var(--mute); font-size:13px; margin-bottom:32px; line-height:1.7; }
+  /* 开始屏 */
+  #startScreen .jdinput { width:100%; min-height:150px; border:1px solid var(--line); border-radius:8px;
+    padding:14px 16px; margin:18px 0; background:#fafafa; font:14px/1.7 inherit; color:var(--ink);
+    resize:vertical; outline:none; }
+  #startScreen .jdinput:focus { border-color:#888; background:#fff; }
+  #startScreen .jdinput.drag { border-color:var(--ink); background:#fff; box-shadow:0 0 0 3px rgba(26,26,26,.06); }
+  /* 出题进度 */
+  #buildScreen { display:none; }
+  .blog { font:13px/1.9 "Cascadia Mono", Consolas, monospace; color:#555; white-space:pre-wrap;
+    border-left:2px solid var(--line); padding:4px 0 4px 14px; margin-top:18px; max-height:50vh; overflow-y:auto; }
+  .spin::after { content:""; display:inline-block; width:13px; height:13px; margin-left:10px;
+    border:2px solid var(--amber); border-top-color:transparent; border-radius:50%;
+    vertical-align:-2px; animation:r .9s linear infinite; }
+  @keyframes r { to { transform:rotate(360deg); } }
+  /* 答题 */
+  #quizScreen { display:none; }
+  .dim { margin-bottom:52px; }
+  .dim h2 { font-size:14px; font-weight:600; color:#555; letter-spacing:.06em;
+    border-bottom:1px solid var(--line); padding-bottom:8px; margin-bottom:8px; }
+  .q { margin:24px 0; }
+  .q .sc { margin-bottom:6px; }
+  .q .ask { color:var(--mute); font-size:13px; margin-bottom:10px; }
+  .q .probe { display:inline-block; font-size:12px; color:var(--amber); border:1px solid var(--amber);
+    border-radius:3px; padding:0 6px; margin-right:8px; }
+  .opt { display:block; width:100%; text-align:left; background:#fff; border:1px solid #d9d9d9;
+    border-radius:6px; padding:11px 15px; margin:8px 0; font:15px/1.6 inherit; cursor:pointer; color:var(--ink); }
+  .opt:hover { border-color:#888; }
+  .opt.sel { background:var(--sel); color:#fff; border-color:var(--sel); }
+  .opt:disabled { cursor:default; }
+  .opt:disabled:not(.sel) { opacity:.5; }
+  .dimnote { font-size:12px; color:var(--mute); margin-top:6px; min-height:16px; }
+  .dimnote.spin { color:var(--amber); }
+  .progress { position:fixed; left:0; bottom:0; width:100%; height:3px; background:var(--line); z-index:9; }
+  .progress > i { display:block; height:100%; width:0; background:var(--ink); transition:width .3s; }
+  .err { color:var(--err); padding:14px 0; }
+  .doneTip { margin-top:30px; padding:16px 18px; background:#f0f7f0; border:1px solid #cfe6cf;
+    border-radius:8px; font-size:14px; color:#2a5a2a; line-height:1.8; display:none; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <span class="t">SPOILER · 情境测评卷</span>
+    <span class="grow"></span>
+    <input id="nameIn" placeholder="你的名字" autocomplete="off">
+    <button class="btn" id="exportBtn" disabled>导出答卷 ↓</button>
+  </div>
+
+  <div class="wrap">
+    <!-- 开始屏 -->
+    <div id="startScreen">
+      <h1>情境测评卷</h1>
+      <div class="sub">这份卷由 AI 按一个真实岗位现场出题，用来在录用前看你的工作风格倾向。<br>
+        没有标准答案——按你<b>真的会怎么做</b>选，别挑看起来漂亮的。每维约 3 题，答得不稳系统会自动补几道。</div>
+      <textarea id="jdText" class="jdinput" placeholder="把岗位 JD 粘贴到这里，或把 .txt / .md 岗位文件拖进来……&#10;&#10;留空则用示例岗位「新媒体运营经理 · 抖音美团双平台」"></textarea>
+      <button class="btn" id="startBtn">▶ 开始（现编测评卷，约 1–2 分钟）</button>
+    </div>
+
+    <!-- 出题进度 -->
+    <div id="buildScreen">
+      <h1 id="buildTitle" class="spin">正在按岗位现编测评卷…</h1>
+      <div class="sub">9 个维度并行出题，请稍候。题目是当场按这份 JD 生成的真题，不是预制题库。</div>
+      <div class="blog" id="buildLog"></div>
+    </div>
+
+    <!-- 答题 -->
+    <div id="quizScreen">
+      <h1 id="jobTitle"></h1>
+      <div class="sub">按你真实会怎么做选；选完即进入下一题。全部答完后点右上角<b>导出答卷</b>。</div>
+      <div id="quiz"></div>
+      <div class="doneTip" id="doneTip">✓ 全部答完了。点右上角<b>导出答卷 ↓</b>保存为 .md 文件，再把它拖进星空首页即可运行项目。</div>
+    </div>
+
+    <div class="err" id="err" style="display:none"></div>
+  </div>
+  <div class="progress"><i id="progBar"></i></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const esc = s => { const d = document.createElement('i'); d.textContent = String(s ?? ''); return d.innerHTML; };
+  async function postJSON(path, body) {
+    const r = await fetch(path, { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body || {}) });
+    const j = await r.json(); if (j.error) throw new Error(j.error); return j;
+  }
+  function showErr(msg) { $('err').style.display='block'; $('err').textContent = '⚠ ' + msg; }
+
+  let JD = null;                 // 结构化 JD（导出时回传、追题时回传）
+  let QUIZ = {};                 // {维度:[题,...]}（含追题，含隐藏键——只用于计分/导出，绝不渲染到屏幕）
+  let CHOICES = {};              // {qkey: 选项id}
+  const dimState = {};           // 维度id -> {risk, total, answered, rounds}
+  const qkey = (dim, i) => dim + '#' + i;
+
+  // —— 1) 开始：发起出题 ——
+  $('startBtn').onclick = async () => {
+    const jdText = $('jdText').value.trim();                 // 有=用户粘贴的 JD 现场出题；空=示例岗位
+    $('startScreen').style.display = 'none';
+    $('buildScreen').style.display = 'block';
+    if (jdText) $('buildTitle').textContent = '正在解析 JD、按岗位现编测评卷…';
+    try { await postJSON('/api/quiz_build', jdText ? { jd_text: jdText } : {}); }
+    catch (e) { return showErr('发起出题失败：' + e.message); }
+    pollBuild();
+  };
+  // 拖 .txt/.md 岗位文件进输入框 → 读出文本填入（粘贴则直接在框里）
+  (() => {
+    const ta = $('jdText');
+    ['dragenter','dragover'].forEach(ev => ta.addEventListener(ev, e => { e.preventDefault(); ta.classList.add('drag'); }));
+    ['dragleave','dragend','drop'].forEach(ev => ta.addEventListener(ev, e => { e.preventDefault(); ta.classList.remove('drag'); }));
+    ta.addEventListener('drop', e => {
+      const f = (e.dataTransfer.files || [])[0]; if (!f) return;
+      const r = new FileReader(); r.onload = () => { ta.value = String(r.result || ''); }; r.readAsText(f);
+    });
+  })();
+
+  async function pollBuild() {
+    let s;
+    try { s = await (await fetch('/api/quiz_state')).json(); }
+    catch (e) { setTimeout(pollBuild, 1500); return; }
+    if (s.error) { $('buildTitle').classList.remove('spin'); return showErr('出题失败：' + s.error); }
+    $('buildLog').textContent = (s.log || []).join('\n');
+    $('buildLog').scrollTop = $('buildLog').scrollHeight;
+    if (s.ready && s.result) { setupQuiz(s.result); return; }
+    setTimeout(pollBuild, 1500);
+  }
+
+  // —— 2) 出好题 → 渲染答题界面 ——
+  function setupQuiz(result) {
+    JD = result.jd || {};
+    QUIZ = JSON.parse(JSON.stringify(result.by_dim || {}));   // 深拷贝，追题往里加
+    $('buildScreen').style.display = 'none';
+    $('quizScreen').style.display = 'block';
+    $('jobTitle').textContent = result.job || '情境测评卷';
+    for (const [dim, qs] of Object.entries(QUIZ)) {
+      dimState[dim] = { risk: (qs[0] && qs[0]['风险']) || '', total: qs.length, answered: 0, rounds: 0 };
+      const box = document.createElement('div'); box.className = 'dim'; box.id = 'dim-' + cssId(dim);
+      box.innerHTML = `<h2>${esc(dim)}</h2>`;
+      const note = document.createElement('div'); note.className = 'dimnote'; note.id = 'note-' + cssId(dim);
+      box.appendChild(note);
+      $('quiz').appendChild(box);
+      qs.forEach((q, i) => renderQuestion(dim, q, i, false));
+    }
+    updateProgress();
+  }
+
+  function cssId(s) { return encodeURIComponent(s).replace(/%/g, '_'); }
+
+  function renderQuestion(dim, q, i, isProbe) {
+    const box = $('dim-' + cssId(dim)); const note = $('note-' + cssId(dim));
+    const qd = document.createElement('div'); qd.className = 'q';
+    const sc = document.createElement('div'); sc.className = 'sc';
+    sc.innerHTML = (isProbe ? '<span class="probe">补充题</span>' : '') + esc(q['情景'] || '');
+    const ask = document.createElement('div'); ask.className = 'ask';
+    ask.textContent = '下面哪个' + (q['问法'] || '最像你') + '？';
+    qd.append(sc, ask);
+    const btns = [];
+    for (const o of (q['选项'] || [])) {
+      const b = document.createElement('button'); b.className = 'opt';
+      b.textContent = (o.id || '') + '　' + (o['文本'] || '');   // 只渲染 id+文本，绝不渲染 dim_tendency/risk_dir
+      b.onclick = () => {
+        if (b.disabled) return;
+        btns.forEach(x => { x.disabled = true; });
+        b.classList.add('sel');
+        CHOICES[qkey(dim, i)] = o.id;
+        dimState[dim].answered += 1;
+        updateProgress();
+        if (dimState[dim].answered >= dimState[dim].total) scoreDimSilently(dim);
+      };
+      btns.push(b); qd.appendChild(b);
+    }
+    box.insertBefore(qd, note);
+  }
+
+  // —— 3) 静默计分 → 答得飘则静默追题（候选人看不到置信/原因，只看到"补充题"）——
+  async function scoreDimSilently(dim) {
+    const qs = QUIZ[dim];
+    const ans = qs.map((q, i) => {
+      const oid = CHOICES[qkey(dim, i)];
+      const chosen = (q['选项'] || []).find(o => o.id === oid) || {};
+      return { '价值': q['价值'], chosen };
+    }).filter(a => a.chosen.id);
+    let s;
+    try { s = await postJSON('/api/quiz_score', { dim, risk: dimState[dim].risk, answers: ans }); }
+    catch (e) { checkDone(); return; }                       // 计分失败不卡候选人，按已答收尾
+    if (s.confidence === '低' && dimState[dim].rounds < 2) {
+      dimState[dim].rounds += 1;
+      const note = $('note-' + cssId(dim));
+      note.className = 'dimnote spin'; note.textContent = '为更准，正在补充几道…';
+      try {
+        const j = await postJSON('/api/quiz_probe', { dim, jd: JD });
+        // 传 JD 结构（支持用户粘贴的 JD、无样本文件）；后端优先用它、缺则回退 jd_name
+        note.className = 'dimnote'; note.textContent = '补充了 ' + j.questions.length + ' 道';
+        const base = QUIZ[dim].length;
+        j.questions.forEach((q, k) => { QUIZ[dim].push(q); renderQuestion(dim, q, base + k, true); });
+        dimState[dim].total += j.questions.length;
+        updateProgress();
+      } catch (e) {
+        $('note-' + cssId(dim)).textContent = '';
+        checkDone();
+      }
+      return;
+    }
+    $('note-' + cssId(dim)).textContent = '';
+    checkDone();
+  }
+
+  // —— 4) 进度 + 全答完启用导出 ——
+  function totals() {
+    let t = 0, a = 0;
+    for (const d of Object.values(dimState)) { t += d.total; a += d.answered; }
+    return { t, a };
+  }
+  function updateProgress() {
+    const { t, a } = totals();
+    $('progBar').style.width = t ? (a / t * 100) + '%' : '0%';
+    checkDone();
+  }
+  function checkDone() {
+    const { t, a } = totals();
+    const allDone = t > 0 && a >= t && Object.values(dimState).every(d => d.answered >= d.total);
+    $('exportBtn').disabled = !allDone;
+    if (allDone) $('doneTip').style.display = 'block';
+  }
+
+  // —— 5) 导出答卷.md ——
+  $('exportBtn').onclick = async () => {
+    $('exportBtn').disabled = true; $('exportBtn').textContent = '生成中…';
+    try {
+      const j = await postJSON('/api/quiz_export',
+        { name: $('nameIn').value.trim(), jd: JD, by_dim: QUIZ, choices: CHOICES });
+      const blob = new Blob([j.md], { type: 'text/markdown;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = j.filename || '测评答卷.md';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      $('exportBtn').textContent = '已导出 ✓';
+    } catch (e) {
+      showErr('导出失败：' + e.message);
+      $('exportBtn').disabled = false; $('exportBtn').textContent = '导出答卷 ↓';
+    }
+  };
+})();
+</script>
+</body>
+</html>

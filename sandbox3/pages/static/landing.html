@@ -1,0 +1,1943 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SPOILER</title>
+<style>
+  /* 设计变量只服务"蒸馏完成之后"的界面（左卡/右表/操作台/名牌）；首页开局屏保持骨架原样 */
+  :root {
+    --sans:"Inter","HarmonyOS Sans SC","MiSans","Noto Sans SC","Source Han Sans SC",
+           "Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+    --mono:"IBM Plex Mono","Cascadia Mono","Cascadia Code",Consolas,
+           "Microsoft YaHei UI",monospace;
+    --off:#f0f1fa;                        /* 次级白·米灰白 */
+    --off-semi:rgba(240,241,250,.72);     /* 半透次级白：弱化正文 */
+    --mute:rgba(240,241,250,.45);         /* 次要读数 */
+    --faint:rgba(240,241,250,.28);        /* 微注/标签 */
+    --line:rgba(255,255,255,.12);         /* 发丝线 */
+    --pad-x:max(5vw,40px);
+    --pad-y:clamp(30px,4vw,50px);
+    --ease:cubic-bezier(.16,1,.3,1);      /* 长缓出，无弹跳 */
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; background:#06070a; overflow:hidden;
+    font-family:var(--sans); }   /* §14：全页一套无衬线，不留 Helvetica 旁支 */
+  #c { display:block; position:fixed; inset:0; width:100vw; height:100vh; cursor:grab; z-index:2; }  /* 压在字符雨之上：头=遮挡体 */
+  #c.grabbing { cursor:grabbing; }
+  .ui { position:fixed; color:var(--mute); pointer-events:none; user-select:none;
+    text-transform:uppercase; letter-spacing:.18em; font-size:11px; z-index:5; }   /* §14：灰蓝 #9fb0c4 出列，文字只许白系 */
+  .brand { top:26px; left:30px; }
+  .brand .big { font-size:17px; letter-spacing:.30em; color:var(--off); font-weight:500; }   /* §14：站名=小标签级，500 封顶、禁 700 */
+  /* 顶部：进操作台后介绍当前这一幕的一行短句（终端风：> 前缀 + 常驻闪烁光标；位置/字号=作者 2026-06-10 调参钉死） */
+  .scenetop { top:3.6vh; left:50.47vw; transform:translateX(-50%); max-width:62vw; text-align:center;
+    color:var(--off); font-family:var(--sans); font-size:16px; letter-spacing:.02em;   /* §14：叙事正文不加宽字距 */
+    text-transform:none; line-height:1.7; opacity:0; transition:opacity .8s var(--ease); }
+  /* 字底阴影+打完后的常驻光标＝2026-06-11 作者批注拍删（整体融入背景）；打字中的光标走 .tw 照旧 */
+  .scenetop::before { content:"> "; color:var(--mute); }
+  .scenetop.on { opacity:1; }
+  /* ====== 中央终端接口（两用：拖文件 / 打字） ====== */
+  #portal { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:min(560px,82vw); z-index:6; transition:opacity .55s, transform .55s; }
+  #portal.gone { opacity:0; transform:translate(-50%,-50%) scale(.92); pointer-events:none; }
+  /* 完全融入背景：无边框、无底色、无阴影；只剩白 > 和白光标 */
+  /* 整行放大 1.5×（2026-06-11 作者批注） */
+  .term { display:flex; align-items:center; justify-content:center; gap:15px; min-height:80px;
+    background:none; border:none; box-shadow:none; cursor:text; }
+  .term.drag .prompt { text-shadow:0 0 14px rgba(255,255,255,.9); }
+  .term.drag .caret { box-shadow:0 0 16px rgba(255,255,255,.95); }
+  .term .prompt { color:#fff; font-family:var(--mono); font-size:30px; }   /* §14：等宽只此一套（IBM Plex Mono 优先） */
+  .term .typed { color:#f2f2f2; font-family:var(--mono); font-size:27px;
+    letter-spacing:.01em; white-space:pre-wrap; word-break:break-all; }
+  /* 厚光标：实心白方块，闪烁 */
+  .caret { display:inline-block; width:16px; height:33px; margin-left:3px; vertical-align:-6px;
+    background:#fff; box-shadow:0 0 7px rgba(255,255,255,.5); animation:blink 1.05s steps(1) infinite; }
+  @keyframes blink { 0%,55%{ opacity:1; } 56%,100%{ opacity:0; } }
+  #hiddenInput { position:absolute; opacity:0; width:1px; height:1px; left:-9999px; }
+  /* 分析态进度行（接真后端 2026-06-13）：真备料跑全 9 维要几分钟，星辰转的同时
+     在底部滚后端进度日志，避免像卡死；失败显红、退回投喂口可重投（live-only：错误不许吞）。 */
+  #prepStatus { position:fixed; left:50%; bottom:8.5vh; transform:translateX(-50%);
+    max-width:72vw; text-align:center; z-index:7; font:13px/1.7 var(--mono);
+    letter-spacing:.04em; color:var(--mute); white-space:pre-wrap;
+    opacity:0; transition:opacity .5s var(--ease); pointer-events:none; }
+  #prepStatus.on { opacity:1; }
+  #prepStatus::before { content:"> "; color:var(--faint); }
+  #prepStatus.err { color:#e0654f; }
+  #prepStatus.err::before { content:"⚠ "; color:#e0654f; }
+
+  /* ====== 左右两块：炼成后的流式面板 ====== */
+  .panel { position:fixed; z-index:6; opacity:0; transition:opacity .9s var(--ease); pointer-events:none; }
+  .panel.on { opacity:1; }
+  #scenePanel { left:var(--pad-x); top:17.9vh; width:min(380px,27vw); }   /* top=作者 2026-06-12 调参（17.89vh 取整）：场景卡+场景库合一后整体上移 */
+  .sc-label { font:10px/1 var(--mono); letter-spacing:.34em; color:var(--faint); margin-bottom:24px; }
+  .sc-label b { font-weight:400; color:var(--off); }   /* §14：<b>=提亮不加粗（✻ 计数等），全站禁粗体 */
+  #scenePanel .sc-label { font-size:10.5px; margin-bottom:12px; }   /* 2026-06-12 作者批注：标题与下文空距收窄到"标题↔类别"同距；全卡字号+0.5 */
+  #scenePanel .sc-title { font:400 clamp(20.5px,1.5vw,26.5px)/1.3 var(--sans); letter-spacing:0;
+    color:#fff; margin-bottom:12px; min-height:20px; }   /* §14：大字号一律 Regular——"细而巨大"，层级靠字号不靠加粗 */
+  #scenePanel .sc-meta { font:10.5px/1 var(--mono); letter-spacing:.22em; color:var(--mute);
+    margin-bottom:20px; min-height:10px; }
+  #scenePanel .sc-body { font-size:14px; line-height:2.0; color:var(--off-semi); font-family:var(--sans);
+    white-space:pre-wrap; min-height:20px; letter-spacing:.02em; }
+  #scenePanel .sc-conflict { margin-top:14px; font-size:13px; line-height:1.9;
+    color:var(--off); font-family:var(--sans); letter-spacing:.02em; }
+  #scenePanel .sc-cast { margin-top:18px; padding-top:14px; border-top:1px solid var(--line);
+    font:11.5px/1.8 var(--mono); color:var(--mute); letter-spacing:.08em; }
+  /* 场景库点选 + 共创（2026-06-12 作者两拍：①界面2=demo 正式操作台，选场景/共创上屏，真库=/api/scenes；
+     ②与场景卡合成一张卡——本块改为卡内小节（非独立 fixed 面板），随场景卡走 */
+  #pickerPanel { margin-top:30px; padding-top:14px; border-top:1px solid var(--line);
+    opacity:0; transition:opacity .9s var(--ease); pointer-events:none; }
+  #pickerPanel.on { opacity:1; pointer-events:auto; }
+  #pickList { max-height:15vh; overflow-y:auto; scrollbar-width:thin; margin-bottom:10px; }
+  .pk-row { font:11.5px/2.1 var(--mono); color:var(--mute); letter-spacing:.06em; cursor:pointer;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pk-row:hover { color:var(--off); }
+  .pk-row.sel { color:#fff; }
+  .pk-row.sel::before { content:"▸ "; color:var(--off); }
+  .pk-note { font:10.5px/1.7 var(--mono); color:var(--faint); letter-spacing:.06em;
+    margin-bottom:8px; white-space:pre-wrap; }
+  #pkChatRow { display:flex; gap:10px; border-top:1px solid var(--line); padding-top:10px; }
+  #pkIn { flex:1; background:transparent; border:none; border-bottom:1px solid var(--line); outline:none;
+    color:var(--off); font:12.5px/1.6 var(--sans); padding:2px 0; }
+  #pkIn::placeholder { color:var(--faint); }   /* §14：占位提示归入白系微注，不用浏览器默认灰 */
+  .pk-btn { background:transparent; border:none; cursor:pointer; color:var(--mute);
+    font:10.5px/1 var(--mono); letter-spacing:.2em; padding:4px 0; }
+  .pk-btn:hover { color:#fff; }
+  #pkLog { max-height:9vh; overflow-y:auto; scrollbar-width:thin; margin-top:8px;
+    font:11.5px/1.8 var(--sans); color:var(--off-semi); }
+  #pkLog .pl-me { color:var(--mute); }
+  #pkLog .pl-warn { color:#c9a36a; }
+  /* 右表：去竖线只留发丝横线 + 三位补零行号 + 维度白/读数等宽灰 */
+  /* 画像表/人设位置=作者 2026-06-11 调参钉死（两块左边对齐 73.45vw）；场景卡保持默认未动 */
+  #reportPanel { left:73.45vw; top:8.9vh; border-collapse:collapse; }
+  #reportPanel caption { caption-side:top; text-align:left; font:10px/1 var(--mono);
+    letter-spacing:.34em; color:var(--faint); padding-bottom:20px; white-space:nowrap; }
+  #reportPanel caption b { color:var(--off); font-weight:400; }
+  #reportPanel th, #reportPanel td { border:none; border-bottom:1px solid var(--line);
+    padding:11px 4px 11px 0; text-align:left; white-space:nowrap; }
+  #reportPanel th + th, #reportPanel td + td { padding-left:40px; }
+  #reportPanel th { font:400 10px/1 var(--mono); letter-spacing:.3em; color:var(--mute);
+    border-bottom:1px solid rgba(255,255,255,.35); padding-bottom:13px; }
+  #reportPanel td { min-width:58px; height:42px; font:14px var(--sans); color:var(--off); }
+  #repBody { counter-reset:rrow; }
+  #repBody tr { counter-increment:rrow; }
+  #repBody td:first-child::before { content:"00" counter(rrow);
+    font:11px var(--mono); color:var(--faint); margin-right:18px; letter-spacing:.08em; }
+  #reportPanel td:nth-child(2) { font:13px var(--mono); color:var(--off-semi); }
+  #reportPanel td:nth-child(3) { font:12px var(--mono); color:var(--mute); }
+  #reportPanel .rep-foot { border:none; padding-top:18px; font:10px/1.8 var(--mono);
+    letter-spacing:.1em; color:var(--faint); white-space:normal; }
+  #personaPanel { left:73.45vw; top:60vh; width:18.8vw; }   /* top 仅兜底：实际顶边在 streamReport 里按画像表底边动态贴齐（2026-06-11 作者批注：标题紧跟「倾向—」下方，给人设留余量） */
+  #personaPanel .ps-body { font-size:12.5px; line-height:1.95; color:var(--off-semi); font-family:var(--sans);
+    letter-spacing:.02em; white-space:pre-wrap; min-height:20px; }
+  /* 人设=终端风（作者 2026-06-11 批注）：> 开头 + 打完常驻闪烁光标；退场走倒放流式（见 enterConsole） */
+  #personaPanel .ps-body::before { content:"> "; color:var(--mute); }
+  #personaPanel .ps-body:not(.tw):not(:empty)::after { content:"▌"; color:#fff; margin-left:3px;
+    text-shadow:0 0 8px rgba(255,255,255,.6); animation:blink 1.05s steps(1) infinite; }
+  .tw::after { content:"▌"; color:#fff; margin-left:1px; text-shadow:0 0 8px rgba(255,255,255,.6);
+    animation:blink 1.05s steps(1) infinite; }
+  /* ====== 氛围件（字符雨/准星/刻度尺/点阵）：首页隐藏，蒸馏开始(#portal.gone)后才浮现 ====== */
+  #rain { position:fixed; inset:0; z-index:1; pointer-events:none; opacity:0;   /* 垫在头的画布之下 */
+    transition:opacity 2.5s var(--ease); }
+  #rain.on { opacity:1; }                                      /* 字符雨：星辰旋转完、开始凝聚才浮现（2026-06-11 作者批注），JS 加类 */
+  /* 颗粒+暗角（设计手册 §12 配方 8）：盖住 3D 与字符雨、垫在文字 UI 之下 */
+  #grade { position:fixed; inset:0; z-index:3; pointer-events:none;
+    background:radial-gradient(ellipse 130% 100% at 50% 42%, rgba(0,0,0,0) 52%, rgba(0,0,0,.46) 100%); }
+  #grade::after { content:""; position:absolute; inset:-40%; opacity:.05;
+    background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    animation:grainJump .42s steps(3) infinite; }
+  @keyframes grainJump { 0%{transform:translate(0,0)} 33%{transform:translate(-28px,18px)} 66%{transform:translate(22px,-14px)} 100%{transform:translate(0,0)} }
+  .hud { position:fixed; z-index:5; pointer-events:none; user-select:none; opacity:0;
+    transition:opacity 1.6s var(--ease); }
+  .cross { width:15px; height:15px; top:50%; }
+  .cross.l { left:var(--pad-x); } .cross.r { right:var(--pad-x); }
+  .cross::before { content:""; position:absolute; left:50%; top:0; width:1px; height:100%; background:#fff; }
+  .cross::after  { content:""; position:absolute; top:50%; left:0; height:1px; width:100%; background:#fff; }
+  .dots { top:var(--pad-y); right:var(--pad-x); width:84px; height:30px;
+    background-image:radial-gradient(circle, rgba(255,255,255,.55) 1px, transparent 1.4px);
+    background-size:7px 7px; }
+  #portal.gone ~ .cross { opacity:.32; }
+  #portal.gone ~ .dots  { opacity:.5; }
+  /* 候选人名牌（左下）：蒸馏完成后随面板亮起，首页开局屏不出现 */
+  .plate { position:fixed; z-index:5; pointer-events:none; user-select:none;
+    bottom:var(--pad-y); left:var(--pad-x); opacity:0; transition:opacity .9s var(--ease); }
+  #scenePanel.on ~ .plate { opacity:1; }   /* 操作台不再亮名牌（2026-06-11 作者批注拍删），只在界面 2 出现 */
+  .plate .name { font:400 15px/1 var(--sans); color:var(--off); }   /* §14：Lusion 成员名牌就是 Regular */
+  .plate .name::before { content:"∷ "; color:var(--mute); }
+  .plate .role { margin-top:9px; font:10px/1 var(--mono); letter-spacing:.26em; color:var(--mute); }
+  .plate .track { margin-top:15px; width:140px; height:1px; background:rgba(255,255,255,.18); position:relative; }
+  .plate .track i { position:absolute; left:0; top:-1px; width:26px; height:2px; background:#fff; }
+
+  /* ====== 操作台：头变换完成后出现的数据框（无框） ====== */
+  #console { position:fixed; inset:0; z-index:5; opacity:0; transition:opacity 1s var(--ease);
+    pointer-events:none; }
+  #console.on { opacity:1; }
+  .cbox { position:fixed; display:flex; flex-direction:column; isolation:isolate; }   /* 无边框：只是方便定位/填字的隐形容器 */
+  /* 原垫底暗晕（::before 径向渐变）＝2026-06-11 作者批注拍删：看着像黑框，全卡背景透明、融入星空 */
+  .cbox .clabel { font:10px/1 var(--mono); letter-spacing:.34em; color:var(--faint); margin-bottom:18px; }
+  .cbox .clabel b { font-weight:400; color:var(--off); }   /* §14：信号灯/行为手册标签里的 ✻ 计数原先漏了去粗 */
+  .cbox .cbody { flex:1; color:var(--off-semi); font-size:16px; line-height:1.85; font-family:var(--sans); }
+    /* §14：文字不加投影壳——靠暗角/雨在卡区压暗给字让位，不靠给字罩黑晕 */
+  .opt { position:relative; padding-left:24px; margin-bottom:18px; color:var(--off-semi);
+    transition:color .5s var(--ease), text-shadow .5s var(--ease); }
+  .opt.chosen { color:#fff; text-shadow:0 0 14px rgba(255,255,255,.35); }
+  .opt.chosen::before { content:"▸"; position:absolute; left:0; color:#fff; }
+  .opt-tag { font:10.5px/1 var(--mono); font-style:normal; letter-spacing:.14em; color:var(--faint);
+    margin-left:10px; white-space:nowrap; }   /* 选项倾向标签（2026-06-12 作者拍）：观众读"这个选择意味着什么" */
+  .opt.chosen .opt-tag { color:var(--off); text-shadow:none; }
+  /* 位置/大小/字号=作者 2026-06-11 调参钉死（第五轮·tune 面板导出）：合卡右侧 62.98vw、事实存档移左下 */
+  #boxOptions { left:62.98vw; top:23.54vh; width:27vw; }
+  #boxOptions .cbody { font-size:15px; line-height:1.95; color:var(--off);     /* 选项=主信息，最亮 */
+    border-top:1px solid rgba(255,255,255,.35); }                              /* 维度报告同构：标签下强线 */
+  #boxOptions .opt { border-bottom:1px solid var(--line);                      /* 行间发丝线（报告表行同构） */
+    padding:13px 4px 13px 24px; margin-bottom:0; }
+  /* 理由+审计并入选项合卡（2026-06-11 作者批注：与选项合成一张）：选项列表 → 小节头「理由 ∷ 审计」→ 理由（终端风、常驻光标拍删）→ 审计（发丝线隔开） */
+  #boxOptions .csplit { margin-top:20px; margin-bottom:12px;
+    font:10px/1 var(--mono); letter-spacing:.34em; color:var(--faint); }
+  #boxOptions .rsbody { font-size:15px; line-height:2.0; color:var(--off-semi); font-family:var(--sans); }
+  #boxOptions .rs-text.tw::before,
+  #boxOptions .rs-text:not(:empty)::before { content:"> "; color:var(--mute); }   /* 终端风：> 开头（.tw=未打字先亮提示符） */
+  #boxOptions .rs-audit { margin-top:14px; padding-top:12px; border-top:1px solid var(--line);
+    font-size:12.5px; line-height:1.95; color:var(--mute); }
+  #boxOptions .rs-audit:empty { display:none; }                                 /* 没填之前不画分隔线 */
+  #boxOptions .au-verdict { font-family:var(--mono); letter-spacing:.18em; color:var(--off); margin-bottom:6px; }
+  #boxOptions .au-verdict.flag { color:#ffd479; }              /* 黄旗时琥珀色 */
+  #boxOptions .au-gap { margin-top:6px; color:var(--faint); }  /* 心口落差：只描述不打分（红线） */
+  #boxInner   { left:42.25vw; top:79.3vh; width:14.6vw; }      /* 小标签 2026-06-11 作者批注拍删 */
+  #boxInner .cbody { font-size:13.5px; line-height:1.9; color:rgba(240,241,250,.6); }  /* 心里话=最弱声部 */
+  /* 心里话/团队心声=终端风（2026-06-11 作者批注）：> 开头 + 打完常驻闪烁光标 */
+  #boxInner .cbody.tw::before,
+  #boxInner .cbody:not(:empty)::before { content:"> "; color:var(--mute); }
+  #boxInner .cbody:not(.tw):not(:empty)::after { content:"▌"; color:#fff; margin-left:3px;
+    text-shadow:0 0 8px rgba(255,255,255,.6); animation:blink 1.05s steps(1) infinite; }
+  #boxTeam  { left:16.9vw; top:50.33vh; width:16.33vw; }       /* 团队 agent（左中）；小标签 2026-06-11 作者批注拍删 */
+  #boxTeam .cbody { font-size:14px; line-height:1.95; }
+  #boxTeam .t-inner { color:rgba(240,241,250,.6); }            /* 团队心声=弱声部 */
+  #boxTeam .t-inner.tw::before,
+  #boxTeam .t-inner:not(:empty)::before { content:"> "; color:var(--mute); }
+  #boxTeam .t-inner:not(.tw):not(:empty)::after { content:"▌"; color:#fff; margin-left:3px;
+    text-shadow:0 0 8px rgba(255,255,255,.6); animation:blink 1.05s steps(1) infinite; }
+  #boxTeam .t-act { margin-top:12px; color:var(--off); }       /* 团队选择=亮一档 */
+  /* 状态灯带：八灯竖排，变灯高亮+▲+证据（窄条，移左上=2026-06-11 作者调参钉死） */
+  #boxLights { left:1.6vw; top:7.83vh; width:8.6vw; }   /* 2026-06-12 作者拍：注释同行内嵌、卡高不变，宽度×1.49（上限1.5倍） */
+  #boxLights .cbody { font-size:12.5px; }
+  .lt { display:flex; justify-content:space-between; padding:7px 2px; border-bottom:1px solid var(--line);
+    color:var(--mute); font-family:var(--mono); white-space:nowrap; }
+  .lt .lt-desc { font-size:9.5px; color:var(--faint); margin-left:6px; }   /* 灯名后同行白话注释（2026-06-12 作者拍：行数不变） */
+  .lt b { font-weight:400; color:var(--off-semi); }
+  .lt.chg { color:var(--off); }
+  .lt.chg b { color:#fff; text-shadow:0 0 10px rgba(255,255,255,.45); }
+  .lt.chg b::before { content:"▲ "; font-size:.8em; }
+  /* 变灯证据行 #ltEvid＝2026-06-11 作者批注拍删（信号灯只变灯高亮，不挂证据句） */
+  /* 事实存档新增：事件 + 在场人 + 承诺标签（左下，2026-06-11 作者第五轮调参钉死） */
+  #boxLedger { left:1.1vw; top:66.68vh; width:27vw; }
+  #console.on #boxLedger { pointer-events:auto; }   /* 存档框自己吃滚轮（2026-06-12 作者拍：与翻页滚轮分开）——父层 #console 是 none，必须单独放行 */
+  #boxLedger .cbody { font-size:12.5px; line-height:1.9; color:var(--off-semi);
+    max-height:24vh; overflow-y:auto; scrollbar-width:thin; }   /* 历幕累积（2026-06-12 作者拍）：框内滚动看全史，幕多不撑屏 */
+  #boxLedger .ld-g { margin-top:10px; }
+  #boxLedger .ld-g:first-child { margin-top:0; }
+  /* 流水账（2026-06-12 作者拍）：场景行打头，下面一人一行"谁：做了什么"，缩进区分 */
+  #boxLedger .ld-sc { color:var(--off); }
+  #boxLedger .ld-act { padding-left:1.1em; }
+  #boxLedger .ld-wit { margin-top:6px; color:var(--mute); font-family:var(--mono); font-size:.88em; }
+  #boxLedger .ld-tag { margin-top:8px; font:10px var(--mono); letter-spacing:.2em; color:var(--faint); }
+
+  /* 行为手册藏卡（2026-06-12 作者拍）：操作台点候选人头 → 头散开、本卡显现；位置待作者调参 */
+  #pbCard { left:36vw; top:24vh; width:27vw; opacity:0; transition:opacity .9s var(--ease); }
+  #pbCard.on { opacity:1; }
+  #pbCard .cbody { font-size:14px; line-height:2.1; }
+  #pbCard .pb-foot { margin-top:14px; padding-top:10px; border-top:1px solid var(--line);
+    font:10.5px/1.9 var(--mono); letter-spacing:.06em; color:var(--faint); }
+
+  /* ====== 状态④ · 总结报告页（草图）：示意框，全部硬编码样例；位置/大小待作者调参钉死 ====== */
+  #report { position:fixed; inset:0; z-index:5; opacity:0; transition:opacity 1s var(--ease); pointer-events:none; }
+  #report.on { opacity:1; }
+  .rbox { position:fixed; isolation:isolate; opacity:0; transform:translateY(12px); font-size:12.5px;
+    transition:opacity .8s var(--ease), transform .8s var(--ease); font-family:var(--sans); }
+  .rbox.on { opacity:1; transform:none; }
+  /* 原垫底暗晕（::before 径向渐变）＝2026-06-11 作者第八轮批注拍删：所有报告卡背景透明、融入星空（与操作台卡同口径） */
+  .rbox .rlabel { font:10px/1 var(--mono); letter-spacing:.34em; color:var(--faint); margin-bottom:14px;
+    border-bottom:1px solid var(--line); padding-bottom:11px; }                 /* 小节头：编号+发丝线（章节感） */
+  .rbox .rlabel b, #rpRisks caption b:first-child { color:var(--off); font-weight:400; letter-spacing:.1em; margin-right:8px; }
+  .rbox .rdim { margin-top:10px; font:10px/1.9 var(--mono); letter-spacing:.06em; color:var(--faint); }
+  .rbox .rmono { font-family:var(--mono); letter-spacing:.14em; color:var(--off); margin-bottom:4px; }
+  .rbox .rgrade { font-weight:400; font-size:2.1em; line-height:1; color:#fff; margin-bottom:12px; }   /* §14：展示级大字 Regular */
+  .rbox .rgrade i { font:400 11px var(--mono); font-style:normal; letter-spacing:.2em; color:var(--mute); margin-left:10px; }
+  .rbox .rline { font-size:1em; line-height:1.9; color:var(--off-semi); }   /* §14：去文字投影壳，同上 */
+  .rbox .rline s { color:var(--mute); }
+  /* 版面=2026-06-11 作者调参钉死（第八轮·tune=2 导出）：明面只亮 风险判据表(右)+下一步建议(左中)；
+     过程回放/理由核查汇总/选择坚定度 三张全部藏进数字人（点头散开才显示）。 */
+  #rpProc  { left:30.9vw;  top:11.02vh; width:21vw;   font-size:15px; }   /* 藏卡三张：平时不亮，点头散开后依次打印（2026-06-11 作者批注） */
+  #rpAudit { left:1.98vw;  top:11.26vh; width:22.91vw; font-size:15px; }
+  #rpSway  { left:2.28vw;  top:64.84vh; width:20vw;   font-size:15px; }
+  #rpNext  { left:2.87vw;  top:38.28vh; width:15vw;   font-size:15px; }
+  #rpRisks { left:64.03vw; top:28.49vh; width:26.1vw; }
+  #rpRisks .rtab { width:100%; }                     /* 表随容器收窄，依据列自动换行 */
+  .rbox .rsplit { margin-top:18px; padding-top:13px; border-top:1px solid var(--line);
+    font:10px/1 var(--mono); letter-spacing:.34em; color:var(--faint); margin-bottom:12px; }
+  /* 判据合一表（界面2报告表同构）：题注+表头强线+行间发丝线+三位行号 */
+  #rpRisks .rtab { border-collapse:collapse; }
+  #rpRisks caption { caption-side:top; text-align:left; font:10px/1 var(--mono);
+    letter-spacing:.34em; color:var(--faint); padding-bottom:16px; white-space:nowrap; }
+  #rpRisks caption b { color:var(--off); font-weight:400; }
+  #rpRisks th, #rpRisks td { border:none; border-bottom:1px solid var(--line);
+    padding:10px 4px 10px 0; text-align:left; white-space:nowrap; }
+  #rpRisks th + th, #rpRisks td + td { padding-left:20px; }
+  #rpRisks th .thg { font-size:9px; letter-spacing:.06em; color:var(--faint); font-style:normal;
+    margin-left:6px; }   /* 表头术语的白话注释（2026-06-12 作者拍：档位/置信光看词读不懂） */
+  #rpRisks th { font:400 10px/1 var(--mono); letter-spacing:.3em; color:var(--mute);
+    border-bottom:1px solid rgba(255,255,255,.35); padding-bottom:12px; }
+  #rpRisks td { font:1.04em var(--sans); color:var(--off); }
+  #rpRisks td.g { font-weight:400; font-size:1.4em; color:#fff; }   /* §14：档位大字靠字号拉层级，不靠加粗 */
+  #rpRisks tbody { counter-reset:rk; }
+  #rpRisks tbody tr { counter-increment:rk; }
+  #rpRisks tbody td:first-child::before { content:"00" counter(rk);
+    font:.85em var(--mono); color:var(--faint); margin-right:14px; letter-spacing:.08em; }
+  #rpRisks td:last-child { white-space:normal; width:min(300px,16vw);
+    font:.96em var(--sans); color:var(--off-semi); line-height:1.8; }
+  #rpRisks tfoot td.rtab-foot { border:none; padding-top:14px; font:13px/1.9 var(--mono);
+    letter-spacing:.06em; color:var(--faint); white-space:normal; width:auto; }   /* 2026-06-12 作者拍小字+1号（原 10px 被浏览器中文最小字号垫成 12 显示→13 才是肉眼+1）；选择器加权重盖过 td:last-child */
+  #rpRisks .rtab-foot > div { text-indent:2em; }   /* 中文首行缩进（2026-06-12 作者拍） */
+
+  #err { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:9;
+    color:#ff8a8a; font-size:15px; text-align:center; padding:40px; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div class="ui brand"><div class="big">SPOILER</div></div>
+  <div class="ui scenetop" id="sceneTop"></div>
+
+  <!-- 中央终端接口 -->
+  <div id="portal">
+    <div class="term" id="term">
+      <span class="prompt">&gt;</span>
+      <span class="typed" id="typed"></span><span class="caret"></span>
+    </div>
+  </div>
+  <input id="hiddenInput" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <div id="prepStatus"></div>
+
+  <!-- 左：场景待确认卡（流式）：名称→类别→介绍→核心冲突→对手盘（字段对齐引擎转折点 title/category/sketch + cast） -->
+  <div class="panel" id="scenePanel">
+    <div class="sc-label">场景 ∷ 起手幕</div>
+    <div class="sc-title" id="sceneTitle"></div>
+    <div class="sc-meta" id="sceneMeta"></div>
+    <div class="sc-body" id="sceneBody"></div>
+    <div class="sc-conflict" id="sceneConflict"></div>
+    <div class="sc-cast" id="sceneCast"></div>
+    <!-- 卡内小节：场景库点选 + 共创（2026-06-12 作者拍两张卡合一）。
+         真库=GET /api/scenes（须从 server 的 /landing 访问，file:// 调不到 API）；
+         点选=换上方场景内容并定为开拍起手幕（window.START_TP，接 /api/run 的 start）；
+         共创=/api/chat 聊出场景 → /api/crystallize 入真库。服务未连=明着报错（live-only），样卡仅排版样稿。 -->
+    <div id="pickerPanel">
+      <div class="sc-label">场景库 ∷ 点选起手幕 <b id="pkCount"></b></div>
+      <div id="pickList"></div>
+      <div class="pk-note" id="pkNote"></div>
+      <div id="pkChatRow">
+        <input id="pkIn" placeholder="想加一幕？把场景说给模型听…" autocomplete="off">
+        <button class="pk-btn" id="pkSend">共创</button>
+        <button class="pk-btn" id="pkSave">入库</button>
+      </div>
+      <div id="pkLog"></div>
+    </div>
+  </div>
+
+  <!-- 右：测评画像表（9 维，真字段=quiz_answer 计分产出：AI 按 JD 出情境迫选题→候选人作答→计分；
+       倾向=全好题选中风险端均值，置信=同维作答稳定度（飘则低）→"哪些答得稳、哪些可能是装的"参考；流式·一列一列） -->
+  <table class="panel" id="reportPanel">
+    <caption>测评画像 <b>✻ 9</b></caption>
+    <thead><tr id="repHead"></tr></thead>
+    <tbody id="repBody"></tbody>
+    <tfoot><tr><td colspan="3" class="rep-foot">倾向＝他答出来的样子，非真实风险 · 置信＝同维作答稳定度，飘则低</td></tr></tfoot>
+  </table>
+
+  <!-- 右下：人设（蒸馏器主产出，第二人称；2026-06-11 作者拍上屏，表格流完后接着打字） -->
+  <div class="panel" id="personaPanel">
+    <div class="sc-label">人设 ∷ 第二人称</div>
+    <div class="ps-body" id="personaBody"></div>
+  </div>
+
+  <!-- 操作台：头变换完成后出现的数据框（终端风，现为布局占位）。
+       屏上叫法=功能直白名（2026-06-11 作者拍：卡片以功能命名）；引擎术语对照：
+       事实存档=ledger/台账 · 相处信号灯=states 八灯/状态灯 · 本幕选择=选项 · AI 核查=理由审计员 -->
+  <div id="console">
+    <div class="cbox" id="boxOptions"><div class="clabel">本幕选择 <b>✻ 4</b></div><div class="cbody"></div>
+      <div class="csplit">选择理由 · AI 核查</div>
+      <div class="rsbody"><div class="rs-text" id="rsnText"></div><div class="rs-audit" id="rsnAudit"></div></div></div>
+    <div class="cbox" id="boxInner"><div class="cbody"></div></div>
+    <div class="cbox" id="boxTeam">
+      <div class="cbody"><div class="t-inner"></div><div class="t-act"></div></div></div>
+    <!-- 信号灯带（引擎 states.py 八灯；差量制：变灯高亮+证据；2026-06-11 新增草图） -->
+    <div class="cbox" id="boxLights"><div class="clabel">相处信号灯 <b>✻ 8</b></div><div class="cbody" id="lightsBody"></div></div>
+    <!-- 事实存档新增（引擎 ledger：时间/事件/在场人=唯一可引用既往事实；2026-06-11 新增草图） -->
+    <div class="cbox" id="boxLedger"><div class="clabel">事实存档 · 历幕累积</div><div class="cbody" id="ledgerBody"></div></div>
+    <!-- 行为手册藏卡（2026-06-12 作者拍：藏在候选人头像里，点头→头散开→卡现，逻辑同界面4藏卡）。
+         手册=蒸馏器产出的 if-then 行为签名，也是理由审计员四查的依据①——卡脚把四个对账依据写明 -->
+    <div class="cbox" id="pbCard">
+      <div class="clabel">行为手册 · 王先生 <b>✻ 5</b> ∷ 蒸馏器产出 · 点头像收起</div>
+      <div class="cbody" id="pbBody">
+        <div>如果方案被当众否定 → 先收情绪不当场争执，会后用数据私下沟通</div>
+        <div>如果任务边界模糊 → 先问清验收标准再动手，不闷头开干</div>
+        <div>如果心里有不满 → 倾向自己消化、对外保持克制</div>
+        <div>如果做出了成绩 → 倾向用结果说话，不主动邀功、不翻旧账</div>
+        <div>如果对方递了台阶 → 接住缓和的机会，不记仇</div>
+        <div class="pb-foot">审计员对账的四个依据：①本手册条款 ②他的内心独白 ③事实存档 ④他的知情范围<br>理由引用手册时核对条款是否真实存在；编造线索 / 越权引用 → 黄旗（只标记不改判）</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 状态④ · 总结报告页（草图）：示意框+硬编码样例，真数据=整场推演跑完后由引擎填 -->
+  <div id="report">
+    <!-- 三风险判据合一表（2026-06-11 作者拍：三卡合一、界面2报告表同构） -->
+    <div class="rbox" id="rpRisks">
+      <table class="rtab">
+        <caption>风险判据表 <b>✻ 3</b> ∷ 王先生 × JD158 内容运营</caption>
+        <thead><tr><th>风险</th><th>档位<i class="thg">这险有多大</i></th><th>档位依据<i class="thg">怎么判出来的</i></th></tr></thead>
+        <tbody>
+          <tr><td>主动离职</td><td class="g">中</td><td>无他评；测评偏中、沙盘未压到命门场景，不轻易判高</td></tr>
+          <tr><td>团队不合</td><td class="g">低</td><td>沙盘行为未现风险；命门场景 4/7 跑到</td></tr>
+          <tr><td>不胜任</td><td class="g">未知</td><td>本卷不覆盖业务胜任（另案评估）</td></tr>
+        </tbody>
+        <tfoot><tr><td colspan="3" class="rtab-foot"><div>证据：E1 幕03选B 被否后私下沟通而非升级 · E2 画像 外部机会敏感 中(2.0) · E3 幕01-04 冲突应对一致偏缓和</div><div>对岗位：离职—高压常加班岗读偏高、稳定成长岗读偏低 ｜ 团队—独立攻坚岗读偏低、高频跨团队岗读偏高（同证据换岗位，结论翻）</div><div>AI 扮演候选人作答，非真人数据 · 未经真实结局校准，不构成对真实结局的预测 · 证据不足处如实标未知</div></td></tr></tfoot>
+      </table>
+    </div>
+    <div class="rbox" id="rpSway">
+      <div class="rlabel">选择坚定度 ∷ 同一道题换序问三遍</div>
+      <div class="rline">全票 9 · 多数票 2 · 摇摆 1（摇摆率 8%）</div>
+      <div class="rline">摇摆点 ∷ 幕03 节骨眼2——B/C 反复（私下沟通 ↔ 顺台阶）</div>
+      <div class="rdim">同一节骨眼换选项顺序问三遍：全票=想都不用想 · 摇摆=心里打架（防位置偏置）</div>
+    </div>
+    <div class="rbox" id="rpNext">
+      <div class="rlabel">下一步建议 ∷ 想更有把握就做这些</div>
+      <div class="rline">补跑定向场景 ✻ 3 ∷ 评审会当众纠错 · 已读不回 · 缩编传闻</div>
+      <div class="rline">面试重点 ∷ 当众被否时据理力争还是私下消化</div>
+      <div class="rline">试用期观察 ∷ 非正式社交是否主动</div>
+    </div>
+    <!-- 过程卡＝状态灯轨迹＋台账承诺结算合一（2026-06-11 作者批注：1、2 合成一张卡） -->
+    <div class="rbox" id="rpProc">
+      <div class="rlabel">过程回放 ∷ 信号灯全场变化 ✻ 8</div>
+      <div class="rline rmono">幕01 ● 幕02 ● 幕03 ◐ 幕04 ●</div>
+      <div class="rline">幕01 冲突 无→酝酿 ∷ 方案被当众否、未当场化解</div>
+      <div class="rline">幕03 角色清晰度 不清→心照不宣 ∷ 主管口头划了边界</div>
+      <div class="rline">幕03 ◐ 黄旗 ∷ 单幕 3 灯齐变，保守判读</div>
+      <div class="rline">幕04 冲突 酝酿→已修复 ∷ 数据复盘获当面认可</div>
+      <div class="rdim">终值 ∷ 冲突 已修复 · 团队接纳 中立 · 离职信号 无 · 其余 5 灯如初</div>
+      <div class="rsplit">承诺兑现结算 ✻ 4（出自事实存档）</div>
+      <div class="rline"><s>幕01 会后把数据发给陈莉</s>　已兑现 · 幕04</div>
+      <div class="rline"><s>幕02 周五前给出测试草案</s>　已兑现 · 幕03</div>
+      <div class="rline">幕03 下周做小范围测试　未到期</div>
+      <div class="rline">幕04 复盘结论同步全组　未到期</div>
+      <div class="rdim">兑现 2 · 未到期 2 · 爽约 0 ∷ 事实存档＝唯一可引用既往事实</div>
+    </div>
+    <div class="rbox" id="rpAudit">
+      <div class="rlabel">理由核查汇总 ∷ 他的说法与事实对账 · 只标记不改判</div>
+      <div class="rline">判定 ∷ 通过 11 · 黄旗 1（黄旗率 8%）</div>
+      <div class="rline">幕02 理由与事实存档不一致 ∷ 称「上周同步过」，存档无此条</div>
+      <div class="rline">幕03 引用未发生事实 ∷ 引用「排名对比图」，存档里没有</div>
+      <div class="rline">心口缝 3 处（只记录，不打分）∷ 幕01 心里不服·行动顺从 / 幕02 心想求助·行动自己扛 / 幕03 盘算测试·只字未提</div>
+    </div>
+  </div>
+
+  <!-- 氛围件：字符雨 + 准星/刻度尺/点阵（首页隐藏，蒸馏开始后浮现） -->
+  <canvas id="rain"></canvas>
+  <!-- 颗粒+暗角（常驻调色层） -->
+  <div id="grade"></div>
+  <div class="hud cross l"></div><div class="hud cross r"></div>
+  <div class="hud dots"></div>
+  <!-- 候选人名牌（样本数据，蒸馏完成后才亮起；接真后端时一并替换） -->
+  <div class="plate">
+    <div class="name">王先生</div>
+    <div class="role">候选人 · JD158</div>
+    <div class="track"><i></i></div>
+  </div>
+
+  <div id="err"></div>
+
+<script>
+/* ====== 背景字符雨（设计手册 §11 够用版·Canvas 2D）======
+   2026-06-10 二次实测修正：字符【从下往上】匀速漂移（近快远慢=视差）；
+   亮字符短命闪烁（0.2-0.5s 即灭、常伴换字）；列外壳钉死；脉冲随流向上。
+   2026-06-11 作者反馈调参（稀/平/慢）：升级三层景深——远层画进 1/3 分辨率
+   离屏再放大（天然糊成蓝雾）、近层大字清晰带辉光；列数与字密度翻倍、整体
+   提速；不倾斜；中央带少量中/远层列（不抢头）。显隐由 CSS 管；零耦合。 */
+(() => {
+  const cv = document.getElementById('rain');
+  const ctx = cv.getContext('2d');
+  if (!ctx || matchMedia('(prefers-reduced-motion: reduce)').matches) { cv.remove(); return; }
+  const CHARS = '[]{}<>/\\|+-*:.=#01';
+  const DPR = Math.min(devicePixelRatio || 1, 2);
+  const newCell = () => ({ ch: CHARS[Math.random() * CHARS.length | 0],
+                           base: 0.05 + Math.random() * 0.22, blink: 0, peak: 0 });
+  const far = document.createElement('canvas');        // 远层离屏：低分辨率画→放大＝免费的景深糊
+  const fctx = far.getContext('2d');
+  const FAR_K = 3;
+  // 三层景深参数：0=近（大、亮、清晰、快）  1=中  2=远（小、暗、糊、慢）；不倾斜（2026-06-11 作者拍）
+  const LAYER = [
+    { fs: [14, 4],  v: [58, 36], dim: 1.0  },
+    { fs: [10, 3],  v: [30, 18], dim: 0.62 },
+    { fs: [6.5, 2.5], v: [14, 10], dim: 0.45 },
+  ];
+  let W = 0, H = 0, cols = [];
+  function build() {
+    W = innerWidth; H = innerHeight;
+    cv.width = W * DPR; cv.height = H * DPR;
+    cv.style.width = W + 'px'; cv.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    far.width = Math.ceil(W / FAR_K); far.height = Math.ceil(H / FAR_K);
+    cols = [];
+    // 两边→中间连续渐变（2026-06-11 作者拍，替代"三块硬分档"）：每簇按离屏幕中心的
+    // 距离 t（0=屏心 1=屏边）连续算密度/亮度/近层概率——边上密亮大字多，越往中越淡
+    // 越稀但不黑掉。分格撒簇保覆盖：每格必有簇，格内位置/列数/层深随机=不栅栏。
+    const CLUSTERS = 9;
+    for (let cl = 0; cl < CLUSTERS; cl++) {
+      const cx = (0.02 + (cl + 0.15 + Math.random() * 0.7) / CLUSTERS * 0.96) * W;
+      const t = Math.min(1, Math.abs(cx / W - 0.5) * 2);
+      const fade = 0.6 + 0.55 * Math.pow(t, 1.3);        // 亮度：屏心 0.6 → 屏边 1.15
+      const n = 2 + Math.round(t * 2.5) + (Math.random() * 2 | 0);   // 列数：屏心 2-3 → 屏边 4-6
+      for (let i = 0; i < n; i++) {
+        const depth = Math.random() < 0.15 + 0.30 * t ? 0            // 近层概率：屏心 15% → 屏边 45%
+                    : Math.random() < 0.55 ? 1 : 2;
+        const L = LAYER[depth];
+        const fs = L.fs[0] + Math.random() * L.fs[1];
+        const step = fs * 1.55;                          // 字距收紧（更密）
+        const y0 = Math.random() * H * 0.18;
+        const m = Math.max(6, ((H * (0.72 + Math.random() * 0.28) - y0) / step) | 0);
+        cols.push({
+          x: cx + (Math.random() - 0.5) * 90, y0,
+          fs, step, n: m, depth, dim: L.dim * fade,      // 随离心距连续压淡
+          off: Math.random() * step,
+          v: L.v[0] + Math.random() * L.v[1],            // 上漂速度：近快远慢=视差
+          pulse: -1, pv: 60 + Math.random() * 20,
+          cells: Array.from({ length: m }, newCell),
+        });
+      }
+    }
+  }
+  build(); addEventListener('resize', build);
+  function drawCol(g, c, k) {                            // k=坐标缩比（远层画进小画布）
+    g.save(); g.translate(c.x / k, c.y0 / k);
+    g.font = (c.fs / k) + 'px "IBM Plex Mono","Cascadia Mono",Consolas,monospace';
+    for (let i = 0; i < c.n; i++) {
+      const y = i * c.step - c.off;
+      const cell = c.cells[i];
+      let b = cell.base;
+      if (cell.blink > 0) b = Math.max(b, cell.peak * Math.min(cell.blink * 5, 1));
+      if (c.pulse >= 0) b = Math.max(b, 1 - Math.abs(y - c.pulse) / 70);
+      b *= Math.min(i / 3, (c.n - 1 - i) / 3, 1) * c.dim;                // 列首尾渐隐+按层压暗
+      if (b <= 0.02) continue;
+      const t = Math.pow(b, 1.5);                        // 越暗越冷灰、越亮越白
+      g.fillStyle = `rgba(${28 + t * 212 | 0},${34 + t * 208 | 0},${42 + t * 201 | 0},${0.22 + b * 0.7})`;
+      if (c.depth === 0 && b > 0.75) { g.shadowColor = 'rgba(225,235,245,.8)'; g.shadowBlur = 8; }
+      else g.shadowBlur = 0;
+      g.fillText(cell.ch, 0, y / k);
+    }
+    g.restore();
+  }
+  let last = 0;
+  function tick(ts) {
+    requestAnimationFrame(tick);
+    if (ts - last < 33) return;                          // ~30fps：低到省力、高到上漂顺滑
+    const dt = Math.min((ts - last) / 1000, 0.2); last = ts;
+    ctx.clearRect(0, 0, W, H);
+    fctx.clearRect(0, 0, far.width, far.height);
+    if (cols.filter(c => c.pulse >= 0).length < 2 && Math.random() < 0.015) {
+      const c = cols[Math.random() * cols.length | 0];
+      if (c.pulse < 0) c.pulse = c.n * c.step + 60;      // 新脉冲从列尾出发、随流向上跑
+    }
+    for (const c of cols) {
+      c.off += c.v * dt;                                 // 整列匀速上漂
+      while (c.off >= c.step) { c.off -= c.step; c.cells.shift(); c.cells.push(newCell()); }
+      for (const cell of c.cells) {
+        if (cell.blink > 0) cell.blink -= dt;
+        else if (Math.random() < 0.5 * dt) {             // 随机点亮：亮 0.15-0.5s 后熄灭
+          cell.blink = 0.15 + Math.random() * 0.35;
+          cell.peak = 0.55 + Math.random() * 0.45;
+          if (Math.random() < 0.5) cell.ch = CHARS[Math.random() * CHARS.length | 0];
+        }
+      }
+      if (c.pulse >= 0) { c.pulse -= c.pv * dt; if (c.pulse < -80) c.pulse = -1; }
+      if (c.depth === 2) drawCol(fctx, c, FAR_K);        // 远层进低分辨率离屏
+    }
+    ctx.drawImage(far, 0, 0, W, H);                      // 远层放大铺底（天然糊）
+    for (const c of cols) if (c.depth === 1) drawCol(ctx, c, 1);
+    for (const c of cols) if (c.depth === 0) drawCol(ctx, c, 1);
+  }
+  requestAnimationFrame(tick);
+})();
+</script>
+
+<script>
+(async () => {
+  const cv = document.getElementById('c');
+  const errEl = document.getElementById('err');
+  const fail = msg => { errEl.style.display='flex'; errEl.textContent = msg; };
+
+  const gl = cv.getContext('webgl2') || cv.getContext('webgl');
+  if (!gl) return fail('你的浏览器没开 WebGL');
+
+  // ============ 1) 解析 GLB（自带极简解析器，不依赖 Three.js） ============
+  function accessorToArray(gltf, bin, accIdx) {
+    const acc = gltf.accessors[accIdx];
+    const bv = gltf.bufferViews[acc.bufferView];
+    const CTYPE = {5120:Int8Array,5121:Uint8Array,5122:Int16Array,5123:Uint16Array,5125:Uint32Array,5126:Float32Array};
+    const NCOMP = {SCALAR:1, VEC2:2, VEC3:3, VEC4:4};
+    const T = CTYPE[acc.componentType], n = NCOMP[acc.type];
+    const byteOffset = (bv.byteOffset||0) + (acc.byteOffset||0);
+    const stride = bv.byteStride || 0;
+    if (!stride || stride === n*T.BYTES_PER_ELEMENT) {
+      return new T(bin.buffer, bin.byteOffset + byteOffset, acc.count * n);
+    }
+    const out = new T(acc.count * n);
+    const dv = new DataView(bin.buffer, bin.byteOffset);
+    for (let i=0;i<acc.count;i++) for (let c=0;c<n;c++) {
+      const off = byteOffset + i*stride + c*T.BYTES_PER_ELEMENT;
+      out[i*n+c] = T===Float32Array ? dv.getFloat32(off,true)
+                 : T===Uint32Array  ? dv.getUint32(off,true)
+                 : T===Uint16Array  ? dv.getUint16(off,true) : dv.getUint8(off);
+    }
+    return out;
+  }
+
+  async function loadGLB(url){
+    const buf = await (await fetch(url)).arrayBuffer();
+    const dv = new DataView(buf);
+    if (dv.getUint32(0,true) !== 0x46546C67) throw new Error(url + ' 不是 GLB 文件');
+    let off = 12, jsonChunk=null, binChunk=null;
+    while (off < buf.byteLength) {
+      const clen = dv.getUint32(off,true), ctype = dv.getUint32(off+4,true);
+      const chunk = new Uint8Array(buf, off+8, clen);
+      if (ctype === 0x4E4F534A) jsonChunk = chunk; else if (ctype === 0x004E4942) binChunk = chunk;
+      off += 8 + clen;
+    }
+    return { gltf: JSON.parse(new TextDecoder().decode(jsonChunk)), bin: binChunk };
+  }
+
+  // 两颗建模（2026-06-12 作者二拍对调）：head.glb=原男头→候选人（主头）；head-f.glb=女头→团队成员陈莉（团队头）。
+  // buildHead 把"解析→贴图→撒点→GL 缓冲"打包成每颗头一份（点缓冲+鬼影缓冲），着色器两头共用；在 prog/gProg 建好后才调用。
+  const N = 110000;
+  async function buildHead(url){
+  const { gltf, bin } = await loadGLB(url);
+
+  const prim = gltf.meshes[0].primitives[0];
+  const POS = accessorToArray(gltf, bin, prim.attributes.POSITION);
+  const NRM = prim.attributes.NORMAL != null ? accessorToArray(gltf, bin, prim.attributes.NORMAL) : null;
+  const UV  = prim.attributes.TEXCOORD_0 != null ? accessorToArray(gltf, bin, prim.attributes.TEXCOORD_0) : null;
+  const IDX = prim.indices != null ? accessorToArray(gltf, bin, prim.indices) : null;
+
+  const mn=[1e9,1e9,1e9], mx=[-1e9,-1e9,-1e9];
+  for (let i=0;i<POS.length;i+=3) for (let k=0;k<3;k++){ const v=POS[i+k]; if(v<mn[k])mn[k]=v; if(v>mx[k])mx[k]=v; }
+  const ctr=[(mn[0]+mx[0])/2,(mn[1]+mx[1])/2,(mn[2]+mx[2])/2];
+  const scl=1.0/Math.max(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2]);
+
+  // ============ 2) 贴图解码（取 baseColor 亮度给粒子细节；失败就全 1） ============
+  let texData=null, texW=0, texH=0;
+  try {
+    const mat = gltf.materials && gltf.materials[prim.material];
+    const texIdx = mat && mat.pbrMetallicRoughness && mat.pbrMetallicRoughness.baseColorTexture
+                 ? mat.pbrMetallicRoughness.baseColorTexture.index : null;
+    if (texIdx != null && UV) {
+      const img = gltf.images[gltf.textures[texIdx].source];
+      const bv = gltf.bufferViews[img.bufferView];
+      const bytes = new Uint8Array(bin.buffer, bin.byteOffset + (bv.byteOffset||0), bv.byteLength);
+      const bmp = await createImageBitmap(new Blob([bytes], {type: img.mimeType||'image/png'}));
+      const tc = document.createElement('canvas'); tc.width=bmp.width; tc.height=bmp.height;
+      const tx = tc.getContext('2d', {willReadFrequently:true}); tx.drawImage(bmp,0,0);
+      texData = tx.getImageData(0,0,bmp.width,bmp.height).data; texW=bmp.width; texH=bmp.height;
+    }
+  } catch(e) { texData = null; }
+
+  // ============ 3) 表面均匀撒点（按三角面积加权；N 在外层=两头同点数，渲染循环也用） ============
+  const triCount = IDX ? IDX.length/3 : POS.length/9;
+  const cum = new Float64Array(triCount);
+  let total = 0;
+  const vA=[0,0,0], vB=[0,0,0], vC=[0,0,0];
+  function triVerts(t) {
+    const i0=IDX?IDX[t*3]:t*3, i1=IDX?IDX[t*3+1]:t*3+1, i2=IDX?IDX[t*3+2]:t*3+2;
+    for(let k=0;k<3;k++){ vA[k]=POS[i0*3+k]; vB[k]=POS[i1*3+k]; vC[k]=POS[i2*3+k]; }
+    return [i0,i1,i2];
+  }
+  for (let t=0;t<triCount;t++){
+    triVerts(t);
+    const ux=vB[0]-vA[0],uy=vB[1]-vA[1],uz=vB[2]-vA[2], wx=vC[0]-vA[0],wy=vC[1]-vA[1],wz=vC[2]-vA[2];
+    const cx2=uy*wz-uz*wy, cy2=uz*wx-ux*wz, cz2=ux*wy-uy*wx;
+    total += Math.sqrt(cx2*cx2+cy2*cy2+cz2*cz2)/2;
+    cum[t] = total;
+  }
+  const tgt = new Float32Array(N*3), nrm = new Float32Array(N*3),
+        sct = new Float32Array(N*3), rnd = new Float32Array(N), lum = new Float32Array(N);
+  function texLum(u, v) {
+    if (!texData) return 1.0;
+    u = u - Math.floor(u); v = v - Math.floor(v);
+    const x = Math.min(texW-1, (u*texW)|0), y = Math.min(texH-1, (v*texH)|0);
+    const i = (y*texW + x)*4;
+    return (0.299*texData[i] + 0.587*texData[i+1] + 0.114*texData[i+2]) / 255;
+  }
+  for (let s=0;s<N;s++){
+    const r = Math.random()*total;
+    let lo=0, hi=triCount-1;
+    while (lo<hi){ const mid=(lo+hi)>>1; if (cum[mid] < r) lo=mid+1; else hi=mid; }
+    const [i0,i1,i2] = triVerts(lo);
+    let r1=Math.sqrt(Math.random()), r2=Math.random();
+    const w0=1-r1, w1=r1*(1-r2), w2=r1*r2;
+    for (let k=0;k<3;k++)
+      tgt[s*3+k] = ((POS[i0*3+k]*w0 + POS[i1*3+k]*w1 + POS[i2*3+k]*w2) - ctr[k]) * scl;
+    if (NRM) {
+      let nx=NRM[i0*3]*w0+NRM[i1*3]*w1+NRM[i2*3]*w2,
+          ny=NRM[i0*3+1]*w0+NRM[i1*3+1]*w1+NRM[i2*3+1]*w2,
+          nz=NRM[i0*3+2]*w0+NRM[i1*3+2]*w1+NRM[i2*3+2]*w2;
+      const l=Math.hypot(nx,ny,nz)||1; nrm[s*3]=nx/l; nrm[s*3+1]=ny/l; nrm[s*3+2]=nz/l;
+    } else { nrm[s*3]=0; nrm[s*3+1]=0; nrm[s*3+2]=1; }
+    lum[s] = UV ? texLum(UV[i0*2]*w0+UV[i1*2]*w1+UV[i2*2]*w2,
+                         UV[i0*2+1]*w0+UV[i1*2+1]*w1+UV[i2*2+1]*w2) : 1.0;
+    const th=Math.random()*6.2832, ph=Math.acos(2*Math.random()-1), rad=1.4+Math.random()*1.3;
+    sct[s*3]=Math.sin(ph)*Math.cos(th)*rad; sct[s*3+1]=Math.cos(ph)*rad*0.8; sct[s*3+2]=Math.sin(ph)*Math.sin(th)*rad;
+    rnd[s]=Math.random();
+  }
+
+  // —— 本头的 GL 缓冲：点阵 5 条 + 鬼影皮肤层（程序两头共用，缓冲每头一份） ——
+  const pts = [];
+  function buff(arr, attr, n){ const b=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,b);
+    gl.bufferData(gl.ARRAY_BUFFER,arr,gl.STATIC_DRAW); pts.push({b,attr,n}); }
+  buff(tgt, loc.aTarget, 3); buff(nrm, loc.aNormal, 3); buff(sct, loc.aScatter, 3);
+  buff(rnd, loc.aRand, 1); buff(lum, loc.aLum, 1);
+
+  const ghost = { ok:false, posBuf:null, nrmBuf:null, idxBuf:null, idxType:0, idxCount:0 };
+  try {
+    if (NRM && gProg) {
+      const isGL2 = typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext;
+      const needUint = IDX && IDX.BYTES_PER_ELEMENT === 4;
+      if (needUint && !isGL2 && !gl.getExtension('OES_element_index_uint')) throw new Error('缺 uint 索引扩展');
+      const vtx = new Float32Array(POS.length);
+      for (let i=0;i<POS.length;i+=3) for (let k=0;k<3;k++) vtx[i+k] = (POS[i+k]-ctr[k])*scl;
+      ghost.posBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, ghost.posBuf); gl.bufferData(gl.ARRAY_BUFFER, vtx, gl.STATIC_DRAW);
+      ghost.nrmBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, ghost.nrmBuf); gl.bufferData(gl.ARRAY_BUFFER, NRM, gl.STATIC_DRAW);
+      if (IDX) { ghost.idxBuf = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ghost.idxBuf);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, IDX, gl.STATIC_DRAW);
+        ghost.idxType = needUint ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT; ghost.idxCount = IDX.length; }
+      else ghost.idxCount = POS.length/3;
+      ghost.ok = true;
+    }
+  } catch(e) { console.warn(url + ' 鬼影皮肤层未启用（点阵照常）：' + e.message); }
+  return { pts, ghost };
+  }
+
+  // ============ 4) 着色器（旋转 + 定向光 + 扫描 + 闪烁 + 辉光双层） ============
+  const VS = `
+    attribute vec3 aTarget; attribute vec3 aNormal; attribute vec3 aScatter;
+    attribute float aRand; attribute float aLum;
+    uniform float uYaw, uPitch, uProgress, uTime, uScanY, uDpr, uGlow, uAspect, uScale, uOffX, uOffY, uDir, uSpin, uMelt, uLocal;
+    varying float vBright, vBoost, vRand, vDef, vMelt;
+    void main(){
+      float h = clamp(aTarget.y + 0.5, 0.0, 1.0);
+      float dly = mix(h, 1.0 - h, uDir) * 0.45;                        // 凝聚方向（2026-06-11 作者批注）：uDir=0 由下到上（界面2）/ 1 由上到下（操作台起）；消散=倒放自动反向
+      float p = smoothstep(0.0, 1.0, clamp(uProgress * 1.5 - dly, 0.0, 1.0));
+      float cs = cos(uSpin), ss = sin(uSpin);                          // 星辰水平自旋（2026-06-11 作者批注）：只转散开位，凝聚途中随 (1-p) 自然减弱→涡旋收拢成头
+      vec3 sc = vec3(aScatter.x*cs + aScatter.z*ss, aScatter.y, -aScatter.x*ss + aScatter.z*cs);
+      sc *= mix(1.0, 0.55, uLocal);                                    // 局部凝聚（2026-06-12 作者拍，团队头用）：散开云收窄到头部附近
+      float cy = cos(uYaw), sy = sin(uYaw);
+      float cp = cos(uPitch), sp = sin(uPitch);                       // 俯仰：绕屏幕水平轴（yaw 之后再转）
+      vec3 rt = vec3(aTarget.x*cy + aTarget.z*sy, aTarget.y, -aTarget.x*sy + aTarget.z*cy);   // yaw/pitch 只转头部目标位（2026-06-12 作者拍"往回扯"去根）：
+      rt = vec3(rt.x, rt.y*cp - rt.z*sp, rt.y*sp + rt.z*cp);                                  // 散开星野不吃转头——否则任何回正都=整片星空被拧
+      vec3 rn = vec3(aNormal.x*cy + aNormal.z*sy, aNormal.y, -aNormal.x*sy + aNormal.z*cy);
+      rn = vec3(rn.x, rn.y*cp - rn.z*sp, rn.y*sp + rn.z*cp);
+      vec3 rp = mix(sc, rt, p);
+      rp += (1.0-p) * vec3(sin(uTime*0.5+aRand*9.0), cos(uTime*0.4+aRand*7.0), sin(uTime*0.3+aRand*5.0)) * 0.05;
+      vec3 L = normalize(vec3(-0.55, 0.35, 0.75));
+      float lam = max(dot(rn, L), 0.0);
+      float rim = pow(1.0 - abs(dot(rn, vec3(0.0,0.0,1.0))), 2.0);
+      float brLit = (0.10 + lam*0.95 + rim*0.30) * (0.35 + aLum*0.65); // 纯光照亮度：决定点径（点径要整齐）
+      float br = brLit * (0.62 + 0.76*fract(aRand*73.7));              // 每点独立亮度抖动只进颜色（碎钻感，§12 配方 2）
+      float spk = step(0.992, fract(aRand*517.3))                      // ~0.8% 的点偶发火花
+                * max(0.0, sin(uTime*(1.2+fract(aRand*91.0)*1.8) + aRand*40.0) - 0.55) * 2.2;
+      br += spk * (0.35 + p*0.45);
+      float boost = 0.0;
+      if (uScanY > -900.0) { float dd = abs(rp.y - uScanY); boost = max(0.0, 1.0 - dd/0.055); }
+      vBright = br; vBoost = boost; vRand = aRand;
+      float mf = 0.62 - uMelt * 1.34;                                  // 融化前沿（2026-06-12 作者拍）：uMelt 0→1 前沿从头顶扫到底，前沿以上的点消失
+      vMelt = uMelt <= 0.0 ? 0.0 : smoothstep(mf - 0.03, mf + 0.05, aTarget.y);
+      float zv = rp.z - 1.55;
+      float f = 2.41;
+      float w = -zv;
+      vDef = clamp(abs(w - 1.18) * 1.4, 0.0, 1.0) * p;                 // 够用版景深：焦平面钉在脸前部，越远越虚（散开态不参与）
+      vec2 base = vec2(rp.x * f/uAspect, rp.y * f);
+      float eS = mix(mix(1.0, uScale, p), uScale, uLocal);             // uLocal=0：散开态钉全屏星野、凝聚途中飞向目标位；=1：散开云从头就钉在头位（团队头=肩头一小团里长出来）
+      gl_Position = vec4(base * eS + vec2(uOffX, uOffY) * mix(p, 1.0, uLocal) * w, 0.0, w);
+      gl_PointSize = (0.5 + brLit*3.6 + boost*1.2) * (1.0 + uGlow*1.9) * (1.0 + vDef*2.0) * uDpr * (1.0 / -zv) * 1.45 * eS;
+    }`;
+  const FS = `
+    precision highp float;
+    varying float vBright, vBoost, vRand, vDef, vMelt;
+    uniform float uTime, uGlow;
+    void main(){
+      vec2 c = gl_PointCoord - 0.5; float d = length(c);
+      if (d > 0.5) discard;
+      float fl = 0.74 + 0.26 * sin(uTime*1.6 + vRand*30.0);
+      float tone = smoothstep(0.05, 0.9, vBright);
+      vec3 col = mix(vec3(0.34, 0.44, 0.66), vec3(0.80, 0.93, 0.95), tone);   // 双色分调：暗端蓝紫→亮端青绿白（§12 配方 5）
+      float hj = fract(vRand*37.13);                                          // 每点色相抖动：偏绿或偏紫
+      col *= mix(vec3(0.93, 1.05, 0.97), vec3(1.05, 0.95, 1.07), hj);
+      col = mix(col, vec3(0.92, 0.97, 1.0), clamp(vBoost*0.45 + step(1.05, vBright)*0.5, 0.0, 1.0));   // 扫描/高光簇推近纯白
+      float dim = 1.0 / (1.0 + vDef*2.6);                                     // 失焦：变大变淡（§12 配方 3）
+      if (uGlow > 0.5) {
+        float halo = smoothstep(0.5, 0.0, d);
+        gl_FragColor = vec4(col, halo * (vBright*0.13 + vBoost*0.16) * fl * dim * (1.0 - vMelt));
+      } else {
+        float edge = smoothstep(0.5, mix(0.30, 0.04, vDef), d);
+        float a = (0.10 + vBright*0.95) * edge * fl + vBoost*0.18;
+        gl_FragColor = vec4(col, clamp(a, 0.0, 1.0) * dim * (1.0 - vMelt));
+      }
+    }`;
+  function sh(type, src){ const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
+    if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error('着色器：'+gl.getShaderInfoLog(s)); return s; }
+  let prog;
+  try {
+    prog = gl.createProgram();
+    gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+    gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+    gl.linkProgram(prog);
+    if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error('链接：'+gl.getProgramInfoLog(prog));
+  } catch(e) { return fail(e.message); }
+  gl.useProgram(prog);
+  const A = n => gl.getAttribLocation(prog, n), U = n => gl.getUniformLocation(prog, n);
+  const loc = { aTarget:A('aTarget'), aNormal:A('aNormal'), aScatter:A('aScatter'), aRand:A('aRand'), aLum:A('aLum'),
+    uYaw:U('uYaw'), uPitch:U('uPitch'), uProgress:U('uProgress'), uTime:U('uTime'), uScanY:U('uScanY'),
+    uDpr:U('uDpr'), uGlow:U('uGlow'), uAspect:U('uAspect'),
+    uScale:U('uScale'), uOffX:U('uOffX'), uOffY:U('uOffY'), uDir:U('uDir'), uSpin:U('uSpin'), uMelt:U('uMelt'), uLocal:U('uLocal') };
+  function bindPoints(head){ for (const o of head.pts){ gl.bindBuffer(gl.ARRAY_BUFFER,o.b);
+    gl.enableVertexAttribArray(o.attr); gl.vertexAttribPointer(o.attr,o.n,gl.FLOAT,false,0,0); } }
+
+  // ============ 4b) 鬼影皮肤层（§12 配方 4）：用原 mesh 三角面画一层暗蓝紫雾面垫底 ============
+  const GVS = `
+    attribute vec3 aPos; attribute vec3 aNrm;
+    uniform float uYaw, uPitch, uAspect, uScale, uOffX, uOffY, uMelt;
+    varying float vLam, vRim, vMelt;
+    void main(){
+      float cy = cos(uYaw), sy = sin(uYaw);
+      vec3 rp = vec3(aPos.x*cy + aPos.z*sy, aPos.y, -aPos.x*sy + aPos.z*cy);
+      vec3 rn = vec3(aNrm.x*cy + aNrm.z*sy, aNrm.y, -aNrm.x*sy + aNrm.z*cy);
+      float cp = cos(uPitch), sp = sin(uPitch);
+      rp = vec3(rp.x, rp.y*cp - rp.z*sp, rp.y*sp + rp.z*cp);
+      rn = normalize(vec3(rn.x, rn.y*cp - rn.z*sp, rn.y*sp + rn.z*cp));
+      vLam = max(dot(rn, normalize(vec3(-0.55, 0.35, 0.75))), 0.0);
+      vRim = pow(1.0 - abs(dot(rn, vec3(0.0,0.0,1.0))), 1.6);
+      float mf = 0.62 - uMelt * 1.34;                                  // 融化前沿：同点阵着色器
+      vMelt = uMelt <= 0.0 ? 0.0 : smoothstep(mf - 0.03, mf + 0.05, aPos.y);
+      float w = -(rp.z - 1.55);
+      gl_Position = vec4(vec2(rp.x*2.41/uAspect, rp.y*2.41) * uScale + vec2(uOffX, uOffY)*w, 0.0, w);
+    }`;
+  const GFS = `
+    precision mediump float;
+    varying float vLam, vRim, vMelt;
+    uniform float uGhost;
+    void main(){
+      vec3 fog = mix(vec3(0.07,0.10,0.17), vec3(0.25,0.27,0.40), vRim);   // 暗蓝紫雾，轮缘略亮偏紫
+      float fa = (0.30 + 0.70*(1.0-vLam)) * (0.45 + 0.55*vRim);           // 背光面浓、受光面薄
+      vec3 col = mix(vec3(0.024,0.027,0.039), fog, clamp(fa, 0.0, 1.0));  // 雾叠在近不透明深底上=遮挡体
+      gl_FragColor = vec4(col, uGhost * (1.0 - vMelt));
+    }`;
+  let gProg = null, gloc = null;
+  try {
+    gProg = gl.createProgram();
+    gl.attachShader(gProg, sh(gl.VERTEX_SHADER, GVS));
+    gl.attachShader(gProg, sh(gl.FRAGMENT_SHADER, GFS));
+    gl.linkProgram(gProg);
+    if (!gl.getProgramParameter(gProg, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(gProg));
+    gloc = { aPos: gl.getAttribLocation(gProg,'aPos'), aNrm: gl.getAttribLocation(gProg,'aNrm'),
+      uYaw: gl.getUniformLocation(gProg,'uYaw'), uPitch: gl.getUniformLocation(gProg,'uPitch'),
+      uAspect: gl.getUniformLocation(gProg,'uAspect'), uScale: gl.getUniformLocation(gProg,'uScale'),
+      uOffX: gl.getUniformLocation(gProg,'uOffX'), uOffY: gl.getUniformLocation(gProg,'uOffY'),
+      uGhost: gl.getUniformLocation(gProg,'uGhost'), uMelt: gl.getUniformLocation(gProg,'uMelt') };
+  } catch(e) { gProg = null; console.warn('鬼影皮肤层未启用（点阵照常）：' + e.message); }
+  function drawGhost(head, yawV, pitchV, scaleV, ox, oy, alpha, meltV){
+    const g = head.ghost;
+    if (!g.ok || alpha <= 0.004 || meltV >= 0.999) return;
+    gl.useProgram(gProg);
+    gl.bindBuffer(gl.ARRAY_BUFFER, g.posBuf); gl.enableVertexAttribArray(gloc.aPos); gl.vertexAttribPointer(gloc.aPos,3,gl.FLOAT,false,0,0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, g.nrmBuf); gl.enableVertexAttribArray(gloc.aNrm); gl.vertexAttribPointer(gloc.aNrm,3,gl.FLOAT,false,0,0);
+    gl.uniform1f(gloc.uYaw, yawV); gl.uniform1f(gloc.uPitch, pitchV); gl.uniform1f(gloc.uAspect, W/H);
+    gl.uniform1f(gloc.uScale, scaleV); gl.uniform1f(gloc.uOffX, ox); gl.uniform1f(gloc.uOffY, oy);
+    gl.uniform1f(gloc.uGhost, alpha); gl.uniform1f(gloc.uMelt, meltV);
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
+    if (g.idxBuf) { gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, g.idxBuf); gl.drawElements(gl.TRIANGLES, g.idxCount, g.idxType, 0); }
+    else gl.drawArrays(gl.TRIANGLES, 0, g.idxCount);
+    gl.disable(gl.CULL_FACE);
+    gl.useProgram(prog);
+  }
+
+  // —— 装载两颗头（2026-06-12 作者二拍对调）：原男头=候选人主头，女头=团队成员陈莉；任一颗失败都明着报（live-only 红线） ——
+  let mainHead, npcHead;
+  try {
+    [mainHead, npcHead] = await Promise.all([buildHead('head.glb'), buildHead('head-f.glb')]);
+  } catch(e) { return fail('模型读取失败：' + e.message + '\n（这页要通过本地服务打开，不能双击文件）'); }
+
+  gl.disable(gl.DEPTH_TEST);
+  gl.enable(gl.BLEND);
+  gl.clearColor(0, 0, 0, 0);                             // 画布透明：字符雨从底下透出，头（鬼影遮挡底）挡住身后的雨
+
+  const DPR = Math.min(window.devicePixelRatio || 1, 2);
+  let W=0, H=0;
+  function resize(){ W=innerWidth; H=innerHeight; cv.width=W*DPR; cv.height=H*DPR;
+    cv.style.width=W+'px'; cv.style.height=H+'px'; gl.viewport(0,0,cv.width,cv.height); }
+  resize(); addEventListener('resize', resize);
+
+  // ============ 5) 交互：拖动旋转 / 闲置微转（散聚由“蒸馏”流程驱动） ============
+  const qp = new URLSearchParams(location.search);
+  const TUNE = qp.get('tune');                                 // 临时调参模式（手册 §9 习惯：拖卡+批注+导出，调好即删）：'1'=操作台 '2'=总结页 '3'=界面2（含场景库点选区）
+  let yaw=parseFloat(qp.get('yaw')||'1.75'), yawVel=0, dragging=false, lastX=0, lastInput=0;
+  let pitch=parseFloat(qp.get('pitch')||'0'), pitchVel=0, lastY=0;   // 俯仰轴：拖拽纵向=上下转（360° 自由旋转）
+  let frontYaw = -1.045;                                       // 炼成后回正脸（作者 2026-06-10 调参钉死）
+  let backYaw = 2.985;                                         // 进操作台后小头的“从后往前看”角度（作者 2026-06-10 调参钉死）
+  let frontPitch = 0.055;                                      // 炼成正脸俯仰（作者 2026-06-10 调参钉死）
+  let backPitch  = 0.36;                                       // 进操作台小头俯仰（作者 2026-06-10 调参钉死）
+  let scale=1, scaleT=1, offX=0, offXT=0, offY=0, offYT=0;     // 头的缩放 + 屏幕偏移（进操作台时缩小移位）
+  const END = { scale:0.355, offX:-0.01, offY:-0.14 };        // 小头终点缩放/位置（作者 2026-06-10 调参钉死：大致居中、略偏下）
+  let easeTurn = 0.055, easeMove = 0.06;                      // 转身 / 缩放移位 的每帧缓动系数（作者 2026-06-10 调参钉死）
+  let repEaseTurn = 0.022, repEaseMove = 0.024;               // 状态④过渡专用：比进操作台慢 ~2.5 倍（作者 2026-06-10 拍）
+  let fYawOff = parseFloat(qp.get('fyaw') ?? '-0.250');        // 女头朝向补偿（作者 2026-06-12 [ ] 键实调钉死）：head-f.glb 出厂朝向与原男头不同，画团队头（女头）时恒加此角
+  let npcYaw=-0.63, npcPitch=0.25, npcScale=0.32, npcOffX=-0.505, npcOffY=0.38;  // 团队头（陈莉=女头建模；位置作者 2026-06-10 调参钉死：左上方）
+  let npcScaleCur = 0;                                        // 团队头当前缩放
+  let npcProgress = 0, npcProgressTarget = 0;                 // 团队头独立散聚进度（2026-06-12 作者拍转场重做：凝=从下往上、速度同界面2 凝聚）
+  let npcMelt = 0, npcMeltTarget = 0;                         // 团队头融化（作者拍：退场≠散开，是粒子从上往下消失）：0=完好 → 1=融尽，匀速下扫
+  const REP = { scale:1, offX:-0.107, offY:0.059 };           // 状态④总结页：大头位置（2026-06-11 作者第八轮调参钉死）
+  let repYaw = -1.395, repPitch = 0.265;                      // 大头朝向（2026-06-11 作者第七轮调参钉死）
+  let progress=0, progressTarget=0;                            // 首页默认“散为材料”
+  let dirHead = 0;                                             // 凝聚方向（喂 uDir）：0=由下到上（界面2）/ 1=由上到下（操作台起）
+  let spinAng = 0, spinVel = 0.05, spinMode = 'idle', spinClk = 0; // 星辰自旋（2026-06-11 作者五调定稿）：待机 0.05 → 投喂后 1s 匀加速到 0.25 → 以 0.25 为初速 rush 全程加速 2.5s → 凝聚泄劲
+  let downX=0, downY=0;                                        // 按下点：区分"点一下"（总结页点头）和拖拽
+  cv.addEventListener('pointerdown', e=>{ dragging=true; lastX=e.clientX; lastY=e.clientY;
+    downX=e.clientX; downY=e.clientY;
+    cv.classList.add('grabbing'); cv.setPointerCapture(e.pointerId); });
+  let tuneHeadMove = null;                                     // 调参模式钩子：选中头时画布拖拽=移头不转头（调好即删）
+  cv.addEventListener('pointermove', e=>{ if(!dragging) return;
+    const dx=e.clientX-lastX, dy=e.clientY-lastY; lastX=e.clientX; lastY=e.clientY;
+    if (tuneHeadMove && tuneHeadMove(dx, dy)) return;
+    yawVel = dx*0.005; yaw += yawVel;
+    pitchVel = dy*0.005; pitch += pitchVel; lastInput=performance.now(); });
+  cv.addEventListener('pointerup', e=>{ dragging=false; cv.classList.remove('grabbing'); lastInput=performance.now();
+    if (!TUNE && phase==='report' && repShown && Math.hypot(e.clientX-downX, e.clientY-downY) < 6
+        && (procOpen || Math.abs(e.clientX - W/2) < W*0.25))   // 收起=随处点；展开=点屏幕中带（数字人站位）
+      toggleProc();
+    if (!TUNE && phase==='entering' && consoleDone && Math.hypot(e.clientX-downX, e.clientY-downY) < 6
+        && (pbOpen || Math.abs(e.clientX - W/2) < W*0.25))     // 操作台点候选人头（中带）→ 行为手册藏卡（2026-06-12 作者拍，逻辑同界面4）
+      togglePb(); });
+
+  // ============ 6) 蒸馏流程状态机：idle → distilling → formed → reveal ============
+  const portal = document.getElementById('portal');
+  const termEl = document.getElementById('term');
+  const typedEl = document.getElementById('typed');
+  const hidden = document.getElementById('hiddenInput');
+  let phase = 'idle', typedText = '', scanStart = -1;
+
+  // —— 打字（隐藏 input 捕获，自绘厚光标） ——
+  const WELCOME = "LET'S PEEK INTO THE FUTURE:";               // 欢迎语（2026-06-13 作者改 glimpse→peek into，全大写，留冒号作输入提示）
+  let welcomeTxt = '';
+  function syncTyped(){ typedEl.textContent = welcomeTxt + (typedText ? ' ' + typedText : ''); }
+  termEl.addEventListener('click', ()=> hidden.focus());
+  hidden.addEventListener('input', ()=>{ typedText = hidden.value; syncTyped(); });
+  hidden.addEventListener('keydown', e=>{
+    if (e.key === 'Enter' && phase==='idle' && typedText.trim()) beginDistill();
+  });
+  if (!TUNE) setTimeout(()=> hidden.focus(), 300);
+  if (!TUNE) (async()=>{                                       // 开机欢迎语：光标先亮、停半拍再打（终端风总规矩），用户即知此处等输入
+    const zz = ms => new Promise(r => setTimeout(r, ms));      // 不用 sleep：它声明在后面（死区），且欢迎语不参与 Enter 跳过
+    await zz(700);
+    for (const ch of WELCOME){
+      if (phase !== 'idle') return;                            // 已开始投喂就别打了
+      welcomeTxt += ch; syncTyped();                           // 模仿人手速：忽快忽慢，空格后略停顿（2026-06-11 作者二调：提速 1.5×）
+      await zz(40 + Math.random()*80 + (ch===' ' ? 95 : 0));
+    }
+  })();
+
+  // —— 拖文件（整页接收） ——
+  ['dragenter','dragover'].forEach(ev => document.addEventListener(ev, e=>{
+    e.preventDefault(); if (phase==='idle') termEl.classList.add('drag'); }));
+  ['dragleave','dragend'].forEach(ev => document.addEventListener(ev, e=>{
+    e.preventDefault(); if (e.relatedTarget===null) termEl.classList.remove('drag'); }));
+  document.addEventListener('drop', e=>{
+    e.preventDefault(); termEl.classList.remove('drag');
+    if (phase!=='idle') return;
+    const f = (e.dataTransfer.files||[])[0];
+    if (!f) return;
+    const r = new FileReader();                               // 读答卷.md 文本→运行项目（.md 内嵌 JD，拖它即够）
+    r.onload = () => beginDistill(String(r.result||''));
+    r.onerror = () => beginDistill();                         // 读不出→退回秒加载演示
+    r.readAsText(f);
+  });
+
+  // —— 投喂 → 蒸馏（接真后端 2026-06-13）——
+  const prepStatusEl = document.getElementById('prepStatus');
+  let prepPollTimer = 0;
+  function beginDistill(answersheetMd){
+    if (phase !== 'idle') return;
+    phase = 'distilling';
+    skipFast = false;
+    prepStatusEl.className = '';                               // 清掉上一轮可能残留的红字
+    portal.classList.add('gone');
+    spinMode = 'slow';                                         // 分析中：星辰缓慢水平旋转，先不凝聚（2026-06-11 作者批注）
+    if (DEMO) { setTimeout(onAnalysisDone, 1600); return; }    // 演示模式（?demo）：星辰"分析"转一下→直接凝成写死王先生，不连后端（录视频）
+    if (answersheetMd) runProject(answersheetMd);             // 拖入答卷.md→真运行项目（计分+蒸馏+搭班+场景，无出题）
+    else runPrepare();                                        // 打字/无答卷→秒加载样本案例（演示备胎）
+  }
+
+  // 第一批（接真后端·边界修正 2026-06-13 作者拍）：首页只负责"运行已备好的项目"——
+  //   出题/答题是"测评卷网页"的活、绝不在首页发生。故投喂走 mode=load 秒加载现成案例→落操作台，零出题。
+  //   第二批：首页吃真人答卷 .md + JD，现做蒸馏+搭班+场景（仍无出题/答题）。
+  //   失败大声亮红、退回投喂口可重投（live-only 红线：错误不许吞）。
+  const DEMO = new URLSearchParams(location.search).has('demo');   // ?demo → 纯前端写死王先生演示（录视频用，全程不连后端、不调 AI）
+  const PREP_SAMPLE = { mode:'load', jd:'JD158_新媒体运营经理', cv:'CV1_林女士' };
+  async function runPrepare(){
+    let kick;                                                 // 星空保持无字：运行进度不上屏（作者拍），仅出错才亮红
+    try {
+      kick = await (await fetch('/api/prepare', { method:'POST',
+        headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(PREP_SAMPLE) })).json();
+    } catch(e){ return prepFailed('连不上后端（需从 server 的 /landing 访问、且服务在跑）：' + e.message); }
+    if (kick.error) return prepFailed(kick.error);
+    pollPrep();
+  }
+  // 拖入答卷.md → 首页"运行项目"（计分→蒸馏→搭班→场景，无出题；复用 pollPrep 轮询 /api/prep_state）
+  async function runProject(md){
+    let kick;                                                 // 星空保持无字：运行进度不上屏（作者拍）
+    try {
+      kick = await (await fetch('/api/run_project', { method:'POST',
+        headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ md }) })).json();
+    } catch(e){ return prepFailed('连不上后端：' + e.message); }
+    if (kick.error) return prepFailed(kick.error);
+    pollPrep();
+  }
+  async function pollPrep(){
+    let s;
+    try { s = await (await fetch('/api/prep_state')).json(); }
+    catch(e){ prepPollTimer = setTimeout(pollPrep, 1500); return; }   // 单次抖动不致命，下轮再问
+    if (s.error) return prepFailed(s.error);
+    if (s.ready){ prepStatusEl.className = ''; applyPortrait(s.portrait); applyPlate(s.meta); applyCandidate(s.candidate); await applyScenes(); onAnalysisDone(); return; }   // 就绪：灌真画像/名牌/人设/手册/起手场景（接真后端），再凝头
+    prepPollTimer = setTimeout(pollPrep, 1500);
+  }
+  function prepFailed(msg){
+    clearTimeout(prepPollTimer);
+    prepStatusEl.className = 'on err';
+    prepStatusEl.textContent = '备料失败：' + msg + '——回到投喂口，重打字/拖文件即重试';
+    phase = 'idle'; spinMode = 'idle'; portal.classList.remove('gone');  // 退回投喂口，作者可重投（服务端失败后 prep.running 已置 false）
+  }
+  function onAnalysisDone(){
+    spinMode = 'rush';                                         // 分析完成：巨大加速度，缓慢→急速旋转约 2s，再开始凝聚成头
+    hidden.blur();
+    setTimeout(()=>{ yaw = frontYaw; pitch = frontPitch; yawVel = pitchVel = 0;   // 凝聚前直接钉正脸：转头已与星空解耦（着色器只转头部目标位），p=0 时钉值零可见、头长出来就是正的
+      phase = 'formed'; spinMode = 'off'; progressTarget = 1;
+      document.getElementById('rain').classList.add('on');     // 字符雨此刻才浮现（旋转完→凝聚开始）
+    }, 2500);                                                  // 急速段时长（2026-06-11 作者三调：1.5s 太快→2.5s）
+  }
+
+  // —— 转场总规矩（2026-06-12 作者拍重做）：信息卡退场仍=快速倒放；候选人头从此**只变换不散开**——
+  //    界面2→3、3→4、及对应后退，都是"移动+缩放+转身"的连续变换（散开只剩藏卡交互用）。
+  //    团队头走独立散聚：进操作台=候选人变换到位后从下往上凝聚（速度同界面2 凝聚），凝完才打印；
+  //    进总结页=团队头从上到下消融、候选人同时变换过去。 ——
+  async function unType(el){                                  // 倒放打印：从末尾快速回删
+    while (el.textContent.length){
+      if (skipFast){ el.textContent = ''; break; }            // Enter 跳过：直接清空
+      el.textContent = el.textContent.slice(0, -3); await sleep(6);
+    }
+  }
+  async function unprintScreen2(){                            // 界面2 三张卡并发倒放，删空才撤场
+    const els = [...new Set([
+      ...['sceneTitle','sceneMeta','sceneBody','sceneConflict','sceneCast','personaBody'].map(id => document.getElementById(id)),
+      ...document.querySelectorAll('#scenePanel > .sc-label, #personaPanel .sc-label, #reportPanel caption, #reportPanel th, #repBody td, #reportPanel .rep-foot'),   // > 只取场景卡外层标签：场景库小节整体随 #pickerPanel 淡出，内容不倒放
+    ])];
+    await Promise.all(els.map(unType));
+    ['scenePanel','reportPanel','personaPanel','pickerPanel'].forEach(id => document.getElementById(id).classList.remove('on'));
+  }
+  let revealed = false, topShown = false;                     // 左右流完=可进操作台；顶部介绍是否已出
+  let navBusy = false, lastNavAt = 0;                         // 滚轮导航：动画进行中/刚导航过 → 忽略输入
+  async function enterConsole(){
+    if (phase !== 'formed' || !revealed) return;
+    navBusy = true; consoleDone = false; topShown = false;
+    lastInput = performance.now();
+    dirHead = 1;                                              // 操作台里藏卡散聚沿用旧方向（从上到下）
+    npcProgress = 0; npcProgressTarget = 0;                   // 团队头待命：候选人变换到位后 frame 触发凝聚
+    npcMelt = 0; npcMeltTarget = 0;                           // 融化态清零（上一轮退场可能融过）
+    scaleT = END.scale; offXT = END.offX; offYT = END.offY;   // 候选人头变换：移动+缩放，yaw 由 entering 分支缓动到背面角
+    phase = 'entering';                                       // 立刻起飞（作者拍：不停顿）——卡片倒放与飞行同时进行
+    await unprintScreen2();
+  }
+  addEventListener('keydown', e=>{                            // Enter 双职：打印中=跳过动画直出全文；空闲=前进（与滚轮同口径）
+    if (e.target.closest && e.target.closest('#pickerPanel')) return;     // 共创框里打字/回车不当导航
+    if (TUNE || e.key !== 'Enter') return;
+    if (navBusy || ((phase === 'distilling' || phase === 'formed') && !revealed)){ skipFast = true; return; }
+    nav(1);
+  });
+  addEventListener('wheel', e=>{
+    if (e.target.closest && e.target.closest('#pickerPanel, #boxLedger')) return;   // 场景列表/事实存档内滚动≠翻页
+    if (!TUNE) nav(e.deltaY > 0 ? 1 : -1);
+  }, { passive:true });   // 滚轮：向下滑=前进、向上滑=后退（2026-06-11 作者二调反转；尺度=一界面/一幕）
+
+  // —— 状态④ · 总结报告页（草图）：操作台演完再按 Enter → 全卡倒放、双头从下到上消散，只有候选人头在总结位重凝 ——
+  async function unprintConsole(){                               // 操作台全部文字并发倒放（含顶部简介）
+    const els = [...new Set([sceneTop,
+      ...document.querySelectorAll('#console .clabel, #console .csplit, #console .opt, #console .rs-text, ' +
+        '#console .rs-audit > div, #boxInner .cbody, #boxTeam .t-inner, #boxTeam .t-act, ' +
+        '#lightsBody > div, #lightsBody .lt, #ledgerBody > div'),
+    ])];
+    await Promise.all(els.map(unType));
+    document.getElementById('console').classList.remove('on');
+    sceneTop.classList.remove('on');
+    document.querySelector('#boxOptions .cbody').innerHTML = '';   // 容器清空：回头再进操作台时按模板重演
+    document.getElementById('lightsBody').innerHTML = '';
+    document.getElementById('ledgerBody').innerHTML = '';
+    document.getElementById('rsnAudit').innerHTML = '';
+  }
+  let consoleDone = false, repShown = false;
+  async function enterReport(){
+    if (phase !== 'entering' || !consoleDone) return;
+    navBusy = true; consoleDone = false;
+    lastInput = performance.now();
+    npcMeltTarget = 1;                                           // 团队头从上往下融化（粒子消失，不散回星空）……
+    yaw -= 6.2832;                                               // ……候选人头反向转身（作者拍：转向与原来相反；减一圈后向 repYaw 正向缓动，终点姿态不变）
+    scaleT = REP.scale; offXT = REP.offX; offYT = REP.offY;      // ……同时变换去总结位（yaw 由 report 分支慢速缓动）
+    phase = 'report';                                            // 立刻起飞，文字倒放同时进行；变换到位后 frame 触发 revealReport
+    await unprintConsole();
+  }
+
+  // —— 滚轮/Enter 统一导航（2026-06-11 作者拍）：尺度=一界面/一幕；向上滑=前进 ——
+  function nav(dir){
+    const now = performance.now();
+    if (navBusy || now - lastNavAt < 800) return;                // 动画中忽略；800ms 冷却防触控板惯性连跳
+    if (phase === 'formed' && revealed && dir > 0){ lastNavAt = now; skipFast = false; enterConsole(); }
+    else if (phase === 'entering' && consoleDone){
+      lastNavAt = now; skipFast = false;
+      if (pbOpen){ togglePb(); return; }                         // 手册卡开着→先收卡（同界面4藏卡口径），再滚才翻幕
+      if (dir > 0){ beatIdx < BEATS.length - 1 ? gotoBeat(beatIdx + 1) : enterReport(); }
+      else        { beatIdx > 0                ? gotoBeat(beatIdx - 1) : backToScreen2(); }
+    }
+    else if (phase === 'report' && repShown && dir < 0){
+      lastNavAt = now; skipFast = false;
+      procOpen ? toggleProc() : backToConsole();                 // 回放卡开着→先收起；否则退回操作台（落在末幕）
+    }
+  }
+  async function backToScreen2(){                                // 幕01 再后退 → 退回界面2：团队头融化＋候选人头变换回正中（同时）、操作台倒放、三卡重打
+    navBusy = true; consoleDone = false;
+    lastInput = performance.now();
+    npcMeltTarget = 1;                                           // 团队头从上往下融化……
+    dirHead = 0;
+    scaleT = 1; offXT = 0; offYT = 0;                            // ……同时候选人头变换回正中（yaw 由 formed 分支缓动回正脸）
+    topShown = false;                                            // 下次前进重新触发 revealConsole
+    phase = 'formed';
+    await unprintConsole();
+    await waitFor(() => npcMelt > 0.98 && Math.abs(scale - 1) < 0.01 && Math.abs(yaw - frontYaw) < 0.04);
+    npcMelt = 0; npcMeltTarget = 0; npcProgress = 0;             // 融化态清零，备下次进操作台重凝
+    S2_STATICS.forEach(o => { o.el.innerHTML = o.html; });       // 标签/表头/脚注瞬时还原（之前退场被倒放删空）
+    await Promise.all([streamScene(), streamReport(), streamPersona()]);   // 三卡同时重打
+    loadScenes();                                                // 场景库点选区随三卡一起回来（已载过则只重显）
+    navBusy = false;
+  }
+  async function unprintReport(){                                // 总结页可见卡倒放；内容静默还原备下次再进
+    const saved = [...document.querySelectorAll('#report .rbox.on')].flatMap(box =>
+      [...box.querySelectorAll('.rline, .rdim, .rsplit, tbody td')].map(el => ({ el, html: el.innerHTML })));
+    await Promise.all(saved.map(({ el }) => unType(el)));
+    document.querySelectorAll('#report .rbox').forEach(b => b.classList.remove('on'));
+    document.getElementById('report').classList.remove('on');
+    saved.forEach(({ el, html }) => { el.innerHTML = html; });
+  }
+  async function backToConsole(){                                // 界面4 后退 → 操作台末幕：候选人头变换回操作台位（反向镜像）、团队头重凝、报告倒放同时
+    navBusy = true;
+    lastInput = performance.now();
+    repShown = false;                                            // 下次前进重新触发 revealReport
+    dirHead = 1;
+    npcMelt = 0; npcMeltTarget = 0;                              // 融化态清零（进总结页时融掉的）
+    npcProgress = 0; npcProgressTarget = 0;
+    yaw += 6.2832;                                               // 反向镜像：加一圈后向 backYaw 负向缓动（与前进 3→4 的反向转身互为镜像）
+    scaleT = END.scale; offXT = END.offX; offYT = END.offY;      // 候选人头变换回操作台位（yaw 由 entering 分支缓动到背面角）
+    topShown = true;                                             // 不走 revealConsole（标签瞬时还原，直接演末幕）
+    phase = 'entering';
+    await unprintReport();
+    await waitFor(() => Math.abs(scale - scaleT) < 0.01 && Math.abs(yaw - backYaw) < 0.04);
+    npcProgressTarget = 1;                                       // 到位后：团队头从下往上重凝
+    await waitFor(() => npcProgress > 0.98);
+    SHELLS.forEach(o => { o.el.innerHTML = o.html; });
+    document.getElementById('console').classList.add('on');
+    beatIdx = BEATS.length - 1;
+    await playBeat(BEATS[beatIdx], false);
+    consoleDone = true; navBusy = false;
+  }
+  // 原"操作台 Enter 进总结页"独立监听已并入 nav(1)（滚轮/Enter 同口径）
+  async function revealReport(){                                 // 头凝完 → 明面卡同时开打（2026-06-11 作者批注：各界面同一逻辑）
+    document.getElementById('report').classList.add('on');
+    const printRisks = async () => {                             // 判据表：表壳（题注+表头+表脚）淡入 → 逐列从上到下打字
+      const risks = document.getElementById('rpRisks');
+      const cells = [...risks.querySelectorAll('tbody td')];
+      const texts = cells.map(td => td.textContent);
+      cells.forEach(td => { td.textContent = ''; });
+      risks.classList.add('on');
+      await sleep(450);
+      const rows = risks.querySelectorAll('tbody tr');
+      const nCols = rows[0].children.length;                     // 列数随表头走（2026-06-12 去置信列后 3 列）
+      for (let c = 0; c < nCols; c++)                            // 一列
+        for (let r = 0; r < rows.length; r++){                   // 从上到下
+          await typeInto(rows[r].children[c], texts[r*nCols + c], 13);
+          await sleep(26);
+        }
+    };
+    const printBox = async id => {                               // 逐卡逐行打字（带标记的行打完落锤还原）
+      const box = document.getElementById(id);
+      const saved = [...box.querySelectorAll('.rline, .rdim, .rsplit')]
+        .map(el => ({ el, html: el.innerHTML, txt: el.textContent }));
+      saved.forEach(s => { s.el.textContent = ''; });
+      box.classList.add('on');
+      await sleep(200);
+      for (const s of saved){
+        await typeInto(s.el, s.txt, 12);
+        if (s.html !== s.txt) s.el.innerHTML = s.html;
+        await sleep(90);
+      }
+    };
+    await Promise.all([ printRisks(),                            // 明面卡并发；藏卡三张不打印（点头直现，2026-06-11 作者批注）
+      ...(TUNE ? ['rpProc','rpAudit','rpSway','rpNext'] : ['rpNext']).map(printBox) ]);
+    navBusy = false;                                             // 总结页打完 → 滚轮可后退
+  }
+
+  // —— 三张深读卡藏进数字人（2026-06-11 作者批注第七轮）：总结页点数字人 → 头散开，
+  //    过程回放/理由核查汇总/选择坚定度 依次打印；再点 → 三卡倒放、头重凝 ——
+  const HIDDEN_BOXES = ['rpProc','rpAudit','rpSway'];            // 顺序=屏上从上到下
+  let procOpen = false, procBusy = false;
+  // —— 行为手册藏卡（2026-06-12 作者拍）：操作台点候选人头 → 主头散开、手册卡显现；再点/滚轮 → 收卡重凝。
+  //    团队头不散（渲染时 pb 开合期间冻结其 progress=1）——手册只藏在候选人头里。 ——
+  let pbOpen = false, pbBusy = false;
+  async function togglePb(){
+    if (pbBusy || phase !== 'entering' || !consoleDone) return;
+    pbBusy = true;
+    if (!pbOpen){
+      progressTarget = 0;                                        // 主头散开（凝聚倒放）
+      await waitFor(() => progress < 0.02);
+      document.getElementById('pbCard').classList.add('on');
+      pbOpen = true;
+    } else {
+      document.getElementById('pbCard').classList.remove('on');
+      progressTarget = 1;                                        // 主头重凝（操作台方向：从上到下）
+      await waitFor(() => progress > 0.98);
+      pbOpen = false;
+    }
+    pbBusy = false;
+  }
+  async function toggleProc(){                                   // 藏卡不走打字动画（2026-06-11 作者批注：太慢太啰嗦）——头散完直接显现、收起直接隐去
+    if (procBusy || phase !== 'report' || !repShown) return;
+    procBusy = true;
+    if (!procOpen){
+      progressTarget = 0;                                        // 头散开（凝聚倒放：从下到上）
+      await waitFor(() => progress < 0.02);
+      HIDDEN_BOXES.forEach(id => document.getElementById(id).classList.add('on'));   // 三卡直接显现（只有 CSS 淡入）
+      procOpen = true;
+    } else {
+      HIDDEN_BOXES.forEach(id => document.getElementById(id).classList.remove('on'));
+      progressTarget = 1;                                        // 头重凝（从上到下）
+      await waitFor(() => progress > 0.98);
+      procOpen = false;
+    }
+    procBusy = false;
+  }
+
+  // ============ 6b) 炼成后：左右两块终端风格流式输出 ============
+  let skipFast = false;                                       // 跳过打印（2026-06-11 作者批注：嫌墨迹按 Enter 直出）；每次新动作开始时复位
+  const sleep = ms => new Promise(r => setTimeout(r, (TUNE || skipFast) ? 0 : ms));
+  const waitFor = cond => new Promise(r => { (function chk(){ cond() ? r() : requestAnimationFrame(chk); })(); });
+  async function typeInto(el, text, speed){                   // 打字机：逐字 + 末尾闪烁方块光标
+    if (TUNE){ el.textContent += text; return; }              // 调参模式：文字瞬时上屏，直接摆版面
+    el.classList.add('tw');
+    for (let i=0;i<text.length;i++){
+      if (skipFast){ el.textContent += text.slice(i); break; }   // Enter 跳过：剩余文字一次性上屏
+      el.textContent += text[i]; await sleep(speed);
+    }
+    el.classList.remove('tw');
+  }
+  async function termType(el, text, speed){                   // 终端风（2026-06-11 作者批注）：先亮 "> "+光标、停半拍，再开始打字
+    el.classList.add('tw');
+    await sleep(480);
+    await typeInto(el, text, speed);
+  }
+  function startReveal(){                                     // 界面2 三张信息卡同时开打（2026-06-11 作者批注：各界面同一逻辑——头凝完、全卡并发）
+    (async () => {
+      await Promise.all([streamScene(), streamReport(), streamPersona()]);
+      loadScenes();                                           // 三卡打完亮场景库点选区（拉真库；没连服务则明着标）
+      revealed = true;                                        // 全部打完才可前进
+    })();
+  }
+
+  // —— 左：场景待确认卡（名称→类别→介绍→核心冲突→对手盘，逐字流式；字段=引擎转折点 title/category/sketch） ——
+  const SCENE = {
+    title: '方案被否',
+    meta: '类别：压力测试',
+    body: '周会上，王先生提出「美团搜索 SEO 优化方案」，资深策划陈莉一句「这个三年前试过，行不通」当众带过、没给细节。王先生手里有第三方平台导出的排名对比图，足以反驳。',
+    conflict: '核心冲突 — 当众顶回去还是私下化解：数据在手，但这是新人和资深的第一次正面交锋，代价不小。',
+    cast: '团队成员：陈莉（资深策划）'
+  };
+  async function streamScene(sc = SCENE){
+    document.getElementById('scenePanel').classList.add('on');
+    for (const id of ['sceneTitle','sceneMeta','sceneBody','sceneConflict','sceneCast'])
+      document.getElementById(id).textContent = '';               // 换幕重打：先清旧字
+    await typeInto(document.getElementById('sceneTitle'), sc.title, 68);    // 打印速度减半（2026-06-11 作者二调：界面2全部字速 ×2）
+    await typeInto(document.getElementById('sceneMeta'), sc.meta, 24);
+    await sleep(160);
+    await typeInto(document.getElementById('sceneBody'), sc.body, 23);     // 介绍+核心冲突提速 1.5×（2026-06-12 作者批注"快0.5倍"：34/30 → 23/20）
+    await sleep(160);
+    if (sc.conflict) await typeInto(document.getElementById('sceneConflict'), sc.conflict, 20);
+    if (sc.cast) await typeInto(document.getElementById('sceneCast'), sc.cast, 24);
+  }
+
+  // —— 场景库点选 + 共创（2026-06-12 作者拍：界面2=demo 正式操作台）。
+  //    真库=GET /api/scenes；选中幕=开拍起手（window.START_TP，开拍接线读它传 /api/run 的 start）。
+  //    服务没连就明着说（live-only 红线），绝不拿假列表装真库。 ——
+  let SCENES = null, chosenStart = null, pkBusy = false, pkMsgs = [];
+  const DEMO_SCENES = [                                        // 演示模式写死场景库（王先生·内容运营主题；点选只换上方场景卡，开拍固定演 BEATS[0]=方案被否）
+    { id:'C2-01', title:'方案被否', category:'压力测试', sketch:'周例会上王先生提的「美团搜索 SEO 优化方案」被资深策划陈莉一句「三年前试过」当众带过，他手里有能反驳的排名对比图——当众顶回去还是私下化解。', owner_hints:'王先生 vs 陈莉' },
+    { id:'C1-01', title:'第一次接活', category:'初来乍到', sketch:'入职第一周，组长把一个搁置的短视频选题丢给王先生练手，历史数据残缺、前任没交接——硬啃、找人要、还是直接问组长，轮到王先生拿主意。', owner_hints:'王先生独自起步' },
+    { id:'C2-02', title:'分工的灰色地带', category:'磨合建制', sketch:'一块内容运营和设计都觉得该对方做的活悬在中间，王先生发现没人认领——主动接还是把职责对清楚。', owner_hints:'王先生 / 设计组' },
+    { id:'C3-01', title:'周五的紧急插单', category:'压力测试', sketch:'临下班主管甩来一个「周一要的」紧急数据复盘、没说清口径，陈莉已经走了——加班硬扛还是先对齐再说。', owner_hints:'王先生 / 主管' },
+  ];
+  const pkEl = id => document.getElementById(id);
+  async function loadScenes(){
+    pkEl('pickerPanel').classList.add('on');
+    if (SCENES){ renderPick(); return; }
+    if (DEMO){                                                 // 演示模式：写死王先生主题场景库，不连后端
+      SCENES = DEMO_SCENES; chosenStart = DEMO_SCENES[0].id; window.START_TP = chosenStart;
+      pkEl('pkCount').textContent = `✻ ${SCENES.length}`; pkEl('pkNote').textContent = '';
+      renderPick(); return;
+    }
+    try {
+      const r = await fetch('/api/scenes');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      SCENES = (await r.json()).scenes || [];
+      const hit = SCENES.find(s => s.title === SCENE.title);      // 样卡若对得上真库某幕，选中态对齐它
+      if (hit){ chosenStart = hit.id; window.START_TP = hit.id; }
+      pkEl('pkCount').textContent = `✻ ${SCENES.length}`;
+      pkEl('pkNote').textContent = '';
+      renderPick();
+    } catch (e) {
+      pkEl('pkNote').textContent = '⚠ 未连接操作台服务（python -m sandbox3.server 后访问 /landing）\n场景卡为排版样稿，点选与共创不可用';
+    }
+  }
+  function renderPick(){
+    pkEl('pickList').innerHTML = '';
+    for (const s of SCENES){
+      const row = document.createElement('div');
+      row.className = 'pk-row' + (s.id === chosenStart ? ' sel' : '');
+      row.textContent = `${s.id}：${s.title} · ${s.category}`;   // 单冒号（2026-06-12 作者批注："∷"看着像俩冒号）
+      row.onclick = () => choosePick(s);
+      pkEl('pickList').appendChild(row);
+    }
+  }
+  async function choosePick(s){
+    if (pkBusy || phase !== 'formed') return;
+    pkBusy = true; chosenStart = s.id; window.START_TP = s.id;
+    renderPick();
+    await streamScene({ title: s.title, meta: `类别：${s.category} · ${s.id}`, body: s.sketch,
+                        conflict: s.owner_hints ? `关键决定：${s.owner_hints}` : '', cast: '' });
+    pkBusy = false;
+  }
+  function pkLog(cls, text){
+    const d = document.createElement('div');
+    if (cls) d.className = cls;
+    d.textContent = text;
+    pkEl('pkLog').appendChild(d); pkEl('pkLog').scrollTop = 1e9;
+  }
+  async function pkChat(){
+    if (DEMO){ pkLog('pl-warn', '演示模式·场景共创已关（这是录视频用的纯前端版）'); return; }
+    const t = pkEl('pkIn').value.trim();
+    if (!t) return;
+    pkEl('pkIn').value = ''; pkMsgs.push({ role: 'user', content: t }); pkLog('pl-me', '我：' + t);
+    try {
+      const r = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                           body: JSON.stringify({ messages: pkMsgs }) });
+      const j = await r.json(); if (j.error) throw new Error(j.error);
+      pkMsgs.push({ role: 'assistant', content: j.reply }); pkLog('', '模型：' + j.reply);
+    } catch (e) { pkLog('pl-warn', '⚠ 共创失败：' + e.message); }
+  }
+  async function pkCrystallize(){
+    if (pkMsgs.length < 2){ pkLog('pl-warn', '⚠ 先和模型聊出个场景再入库'); return; }
+    try {
+      const r = await fetch('/api/crystallize', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                  body: JSON.stringify({ messages: pkMsgs }) });
+      const j = await r.json(); if (j.error) throw new Error(j.error);
+      (SCENES = SCENES || []).push(j.scene);
+      pkEl('pkCount').textContent = `✻ ${SCENES.length}`;
+      pkLog('', `已入库：${j.scene.id} ${j.scene.title}`); pkMsgs = [];
+      await choosePick(j.scene);
+    } catch (e) { pkLog('pl-warn', '⚠ 入库失败：' + e.message); }
+  }
+  pkEl('pkSend').onclick = pkChat;
+  pkEl('pkSave').onclick = pkCrystallize;
+  pkEl('pkIn').addEventListener('keydown', e => { if (e.key === 'Enter') pkChat(); });
+
+  // —— 进操作台、头变换完成后：顶部一行短句介绍当前这一幕 ——
+  const sceneTop = document.getElementById('sceneTop');
+  async function streamTop(text){
+    sceneTop.classList.add('on');
+    await termType(sceneTop, text, 24);                       // 终端风：先 > +光标，停半拍再打
+  }
+
+  // —— 操作台样例数据：四幕（占位，真实由引擎产出；故事线与总结页样例对齐）——
+  //    灯条目格式：[灯名, 本幕终值, 是否变灯, 变灯前值]；变灯的开场先显前值、结果段再翻到终值
+  const LEDGER_TAG = '待兑现承诺 · 此存档=全场唯一可引用的既往事实';
+  // 八盏灯的大白话注释（2026-06-12 作者拍：光看名词没人懂）——与引擎 states.py 八灯一一对应
+  const LIGHT_DESC = {
+    '冲突': '结没结梁子', '修复结果': '梁子解没解', '角色清晰度': '职责清没',
+    '投入绑定': '绑得多深', '外部机会': '看没看外面', '变动': '风吹草动',
+    '团队接纳': '当没当自己人', '离职信号': '要走的苗头',
+  };
+  const BEATS = [
+    { brief: '幕01 · 周例会：王先生提出「美团搜索 SEO 优化方案」，资深策划陈莉一句「三年前试过，行不通」当众带过、没给细节。王先生手里有一张第三方平台导出的排名对比图，足以反驳——当众顶回去还是另想办法，轮到王先生行动。',
+      options: [
+        {k:'A', t:'当众拿出排名对比图，直接反驳「三年前和现在算法不一样」', g:'当众对抗'},
+        {k:'B', t:'不当众顶，会后单独找陈莉、把数据发她，问「能不能再看看」', g:'私下化解'},
+        {k:'C', t:'先顺着台阶「可能我考虑不周」，会后再悄悄验证', g:'顺从退让'},
+        {k:'D', t:'当场不接话，转头问主管「要不要我做个小范围测试再定」', g:'上交决策'},
+      ],
+      chosen: 'B',
+      inner: '就一句「行不通」就把我打发了？不服气。但当众吵起来，赢了道理也输了关系。',
+      reason: '当众拿数据顶回去，赢的是道理、得罪的是人——她下不来台，我以后的活不好干。所以选私下把数据发给她，话留三分：她肯再看一眼，我的目的就达到了。（信心：中高）',
+      team: { who: '陈莉',
+              inner: '我以为他会当场跟我吵，他没有，比我想的稳。数据先收下，回头看看再说。',
+              act: '陈莉接受会后单聊，答应「再看看数据」' },
+      audit: { verdict: '通过',
+               mark: '本幕标记 1 处：理由引用「排名对比图」——事实存档里没有这份材料（只标记不改判，供人工复核）',
+               gap: '心口落差：心里不服气，行动选了不顶撞——只记录，不参与判旗' },
+      lights: [['冲突','酝酿',true,'无'], ['修复结果','无'], ['角色清晰度','不清'], ['投入绑定','无'],
+               ['外部机会','安静'], ['变动','无'], ['团队接纳','中立'], ['离职信号','无']],
+      ledger: { scene: '幕01 · 方案被否（周例会）',
+                acts: ['王先生：提的 SEO 方案被否，没当众顶；会后把排名对比图发给陈莉，约定「再看看」',
+                       '陈莉：当众一句「三年前试过」带过方案；接受会后单聊'],
+                wit: '在场：王先生、陈莉', tag: LEDGER_TAG } },
+    { brief: '幕02 · 周中任务：主管在群里丢给王先生一句「顺手出一版搜索测试方案」，没说验收标准、没说截止时间，陈莉在线上没接话。要不要开口求助、先做到什么程度，轮到王先生拿主意。',
+      options: [
+        {k:'A', t:'直接按自己的理解开干，做完再说', g:'闷头硬扛'},
+        {k:'B', t:'先回主管：问清验收标准和时间，再动手', g:'先问后做'},
+        {k:'C', t:'私聊陈莉请教老方案踩过的坑，借力起步', g:'借力求助'},
+        {k:'D', t:'群里回「收到」，先放一放、排完手头的活再说', g:'拖延搁置'},
+      ],
+      chosen: 'B',
+      inner: '这活儿说得也太含糊了，真想找个人对一对。算了，先自己扛，把验收标准问清楚就行。',
+      reason: '这活儿没给标准、没给时间，闷头做下去多半要返工。所以选先问清验收标准再动手——多问一句的成本，远比做错一版低。方向上周同步过类似思路，应该没偏。（信心：中）',
+      team: { who: '主管',
+              inner: '活儿我故意说得含糊——看他是闷头瞎做，还是先来问清楚。',
+              act: '主管回了两条验收标准，没给截止时间' },
+      audit: { verdict: '黄旗',
+               mark: '本幕标记 1 处：理由称「上周同步过」——事实存档无此条（只标记不改判，供人工复核）',
+               gap: '心口落差：心里想求助，行动选了自己扛——只记录，不参与判旗' },
+      lights: [['冲突','酝酿'], ['修复结果','无'], ['角色清晰度','不清'], ['投入绑定','无'],
+               ['外部机会','安静'], ['变动','无'], ['团队接纳','中立'], ['离职信号','无']],
+      ledger: { scene: '幕02 · 模糊派活（线上）',
+                acts: ['主管：群里丢下「搜索测试方案」的活，被问后只回了两条验收标准、没给截止时间',
+                       '王先生：先问清验收标准再动手，承诺「周五前给出测试草案」'],
+                wit: '在场：王先生、主管', tag: LEDGER_TAG } },
+    { brief: '幕03 · 周会复提：王先生的测试草案过了初筛，想趁势把「小范围真测」提上日程；主管口头给团队划了分工边界、话没说满。当众请战还是先斩后奏，轮到王先生行动。',
+      options: [
+        {k:'A', t:'当众请战：申请下周做小范围测试，给出明确时间点', g:'当众争取'},
+        {k:'B', t:'会后单独找主管，把测试计划细化了再呈上去', g:'私下铺路'},
+        {k:'C', t:'不声张，先用自己账号小流量试跑，拿到数再说', g:'先斩后奏'},
+        {k:'D', t:'提议拉陈莉合作测试，捆绑资深背书一起上', g:'借力背书'},
+      ],
+      chosen: 'A',
+      inner: '测试再拖就黄了。现在不开口，过两周这个提案就成别人的了。',
+      reason: '草案刚过初筛，热度正好，这时候当众把测试日程定下来最顺；再拖两周，这个提案就可能变成别人的。底气是排名对比图的趋势数据，拿得出手。（信心：中高）',
+      team: { who: '陈莉',
+              inner: '上次被我否，他忍住没吭声；这回当众请战，胆子上来了。看他敢接多大的盘子。',
+              act: '陈莉没拦，补了句「测试范围别碰主站」' },
+      audit: { verdict: '通过',
+               mark: '本幕标记 1 处：理由引用「排名对比图」——事实存档里该材料仍未登记（只标记不改判，供人工复核）',
+               gap: '心口落差：无显著落差——心里盘算的与口头提案一致' },
+      lights: [['冲突','酝酿'], ['修复结果','无'], ['角色清晰度','心照不宣',true,'不清'], ['投入绑定','轻度',true,'无'],
+               ['外部机会','留意',true,'安静'], ['变动','无'], ['团队接纳','中立'], ['离职信号','无']],
+      ledger: { scene: '幕03 · 周会请战',
+                acts: ['王先生：当众申请下周做小范围测试，给了明确时间点',
+                       '主管：口头给团队划定分工边界，话没说满',
+                       '陈莉：没拦，补了句「测试范围别碰主站」'],
+                wit: '在场：王先生、主管、陈莉', tag: LEDGER_TAG } },
+    { brief: '幕04 · 数据复盘：王先生把幕01 那版方案的数据补全成完整复盘，摆上周会，陈莉和主管都在场。结果不错——这个尾怎么收，轮到王先生行动。',
+      options: [
+        {k:'A', t:'用数据复盘收尾，顺带把幕01 被否的旧账翻出来对照', g:'当众翻旧账'},
+        {k:'B', t:'只讲数据和结论，不提当初被否的事，给陈莉留面子', g:'对事不对人'},
+        {k:'C', t:'把功劳分一半给陈莉的「提醒」，换个长期盟友', g:'让功结盟'},
+        {k:'D', t:'趁热打铁，当场提议直接全量上线', g:'乘胜冒进'},
+      ],
+      chosen: 'B',
+      inner: '数据已经替我说话了。旧账翻出来，除了让自己爽一下，没别的用。',
+      reason: '数据好不好，大家都看见了，不需要我再多说。要是当众点破当初是谁否的，刚缓和的关系就又僵了——得不偿失。结论会后发全组，这事就算收圆了。（信心：高）',
+      team: { who: '陈莉',
+              inner: '他明明可以拿数据打我的脸，但复盘从头到尾没提当初是谁否的。这个分寸，比数据涨多少都难得。',
+              act: '陈莉当面认可：「这版数据比三年前那次扎实」' },
+      audit: { verdict: '通过',
+               mark: '本幕无标记：理由与事实存档一致',
+               gap: '心口落差：无显著落差——心里的克制与行动一致' },
+      lights: [['冲突','已修复',true,'酝酿'], ['修复结果','当面认可',true,'无'], ['角色清晰度','心照不宣'], ['投入绑定','轻度'],
+               ['外部机会','留意'], ['变动','无'], ['团队接纳','中立'], ['离职信号','无']],
+      ledger: { scene: '幕04 · 数据复盘（周会）',
+                acts: ['王先生：复盘只讲数据、没翻幕01 被否的旧账，承诺「复盘结论同步全组」',
+                       '陈莉：当面认可「这版数据比三年前那次扎实」'],
+                wit: '在场：王先生、主管、陈莉', tag: LEDGER_TAG } },
+  ];
+  // 每幕揭幕模板（2026-06-11 作者批注第九轮）：①四个信息卡同时开打（顶部简介‖选项卡‖信号灯‖事实存档）
+  // → ②心里话先候选人后团队（终端风：先 > +光标停半拍再打字）→ ③结果段（选中标亮→理由→团队选择→AI核查→变灯）。
+  // 多幕（滚轮逐幕前进/后退）都循环此模板；卡片标签只在首次进操作台打一遍（SHELLS），幕间只换内容。
+  const SHELLS = ['#boxLights .clabel','#boxOptions .clabel','#boxOptions .csplit','#boxLedger .clabel']
+    .map(s => { const el = document.querySelector(s); return { el, html: el.innerHTML, txt: el.textContent }; });
+  let beatIdx = 0;
+  async function playBeat(b, withShells){
+    const typeShell = async o => { await typeInto(o.el, o.txt, 24); if (o.html !== o.txt) o.el.innerHTML = o.html; };
+    const optRows = [];
+    await Promise.all([                                          // ① 四卡并发开打
+      streamTop(b.brief),                                        // 顶部简介
+      (async () => {                                             // 右：选项合卡（标签→四选项→小节头）
+        if (withShells) await typeShell(SHELLS[1]);
+        const optBody = document.querySelector('#boxOptions .cbody');
+        for (const o of b.options){
+          const row = document.createElement('div'); row.className = 'opt';
+          const main = document.createElement('span'), tag = document.createElement('i');
+          tag.className = 'opt-tag';
+          row.append(main, tag);
+          optBody.appendChild(row); optRows.push(row);
+          await typeInto(main, o.k + '　' + o.t, 11);
+          if (o.g) await typeInto(tag, '—— ' + o.g, 11);   // 倾向标签（2026-06-12 作者拍）：只给观众看；真引擎=导演打标、演员提示词里滤掉
+          await sleep(110);
+        }
+        if (withShells) await typeShell(SHELLS[2]);
+      })(),
+      (async () => {                                             // 左上：信号灯（标签→八灯逐行；变灯的先显前值，全程可见红线）
+        if (withShells) await typeShell(SHELLS[0]);
+        const lb = document.getElementById('lightsBody');
+        for (const [name, val, chg, pre] of b.lights){
+          const r = document.createElement('div'); r.className = 'lt';
+          r.innerHTML = `<i>${name}<span class="lt-desc">${LIGHT_DESC[name] || ''}</span></i>` +
+            `<b>${chg ? pre : val}</b>`;   // 白话注释同行内嵌（2026-06-12 作者拍：卡高不变）
+          lb.appendChild(r); await sleep(70);
+        }
+      })(),
+      (async () => {                                             // 左下：事实存档（2026-06-12 作者拍历幕累积：旧幕保留、本幕现打，框内滚动看全史）
+        if (withShells) await typeShell(SHELLS[3]);
+        const ld = document.getElementById('ledgerBody');
+        ld.querySelectorAll('.ld-tag').forEach(x => x.remove());                 // 承诺标签只跟最新一幕
+        ld.querySelectorAll('.ld-g').forEach(g => { if (+g.dataset.beat >= beatIdx) g.remove(); });   // 后退/重演：砍掉本幕及之后的旧组
+        // 流水账组装（2026-06-12 作者拍）：场景行 + 一人一行"谁：做了什么" + 在场人
+        const mkGroup = (lg, beat) => {
+          const g0 = document.createElement('div'); g0.className = 'ld-g'; g0.dataset.beat = beat;
+          const lines = [['ld-sc', lg.scene], ...lg.acts.map(a => ['ld-act', a]), ['ld-wit', lg.wit]];
+          for (const [cls, _] of lines){ const d = document.createElement('div'); d.className = cls; g0.appendChild(d); }
+          return [g0, lines];
+        };
+        for (let j = 0; j < beatIdx; j++)                                        // 更早各幕：缺了就瞬时补全（再入场/后退场景）
+          if (!ld.querySelector(`.ld-g[data-beat="${j}"]`)){
+            const [g0, lines] = mkGroup(BEATS[j].ledger, j);
+            lines.forEach(([_, txt], k) => { g0.children[k].textContent = txt; });
+            ld.appendChild(g0);
+          }
+        const [g, glines] = mkGroup(b.ledger, beatIdx); ld.appendChild(g);
+        ld.scrollTop = 1e9;
+        for (let k = 0; k < glines.length; k++){ await typeInto(g.children[k], glines[k][1], 15); ld.scrollTop = 1e9; }
+        const ldG = document.createElement('div'); ldG.className = 'ld-tag'; ld.appendChild(ldG);
+        await typeInto(ldG, b.ledger.tag, 15);
+        ld.scrollTop = 1e9;
+      })(),
+    ]);
+    await sleep(300);
+    await termType(document.querySelector('#boxInner .cbody'),                      // ② 心里话：先候选人（2026-06-12 作者反馈"交互逻辑没体现"：标明谁的心声）
+      '王先生（心声）：' + b.inner, 22);
+    await sleep(250);
+    await termType(document.querySelector('#boxTeam .t-inner'),                     //    再团队：标人名——心声=内心独白对方看不见，▸ 行=当众言行全场可见
+      b.team.who + '（心声）：' + b.team.inner, 22);
+    await sleep(320);
+    const ci = b.options.findIndex(o => o.k === b.chosen);                    // ③ 标出他选的
+    if (ci >= 0) optRows[ci].classList.add('chosen');
+    await sleep(300);
+    await termType(document.getElementById('rsnText'), b.reason, 15);         // ④ 理由（终端风，合卡上半）
+    await sleep(220);
+    await typeInto(document.querySelector('#boxTeam .t-act'), '▸ ' + b.team.act, 15); // ⑤ 团队选择
+    await sleep(320);
+    const au = document.getElementById('rsnAudit');              // ⑥ 理由审计（合卡下半，发丝线隔开）：判定→标记→心口落差（只描述）
+    const auV = document.createElement('div');
+    auV.className = 'au-verdict' + (b.audit.verdict === '黄旗' ? ' flag' : '');
+    au.appendChild(auV);
+    await typeInto(auV, '判定：' + b.audit.verdict, 15);
+    const auM = document.createElement('div'); au.appendChild(auM);
+    await typeInto(auM, b.audit.mark, 15);
+    const auG = document.createElement('div'); auG.className = 'au-gap'; au.appendChild(auG);
+    await typeInto(auG, b.audit.gap, 15);
+    await sleep(320);
+    b.lights.forEach((l, idx) => {                               // ⑦ 信号灯：本幕变灯高亮（支持多灯齐变；证据行已拍删）
+      if (!l[2]) return;
+      const row = document.querySelectorAll('#lightsBody .lt')[idx];
+      row.classList.add('chg');
+      row.querySelector('b').textContent = l[1];
+    });
+  }
+  async function revealConsole(){
+    navBusy = true;
+    SHELLS.forEach(o => { o.el.textContent = ''; });             // 标签清空再打，避免 console.on 闪现成品字
+    document.getElementById('console').classList.add('on');
+    beatIdx = 0;
+    await playBeat(BEATS[0], true);
+    consoleDone = true; navBusy = false;                         // 本幕演完 → 滚轮/Enter 可走下一幕
+  }
+  async function unprintBeat(){                                  // 幕间清场：内容倒放（标签留着），容器清空
+    const els = [sceneTop,
+      ...document.querySelectorAll('#console .opt, #console .rs-text, #console .rs-audit > div, ' +
+        '#boxInner .cbody, #boxTeam .t-inner, #boxTeam .t-act, #lightsBody .lt')];   // 事实存档不倒放：历幕累积（2026-06-12 作者拍），由 playBeat 自己增删
+    await Promise.all(els.map(unType));
+    document.querySelector('#boxOptions .cbody').innerHTML = '';
+    document.getElementById('lightsBody').innerHTML = '';
+    document.getElementById('rsnAudit').innerHTML = '';
+  }
+  async function gotoBeat(i){                                    // 滚轮逐幕：前进/后退都走"清场→按模板重演"
+    navBusy = true; consoleDone = false;
+    await unprintBeat();
+    beatIdx = i;
+    await playBeat(BEATS[i], false);
+    consoleDone = true; navBusy = false;
+  }
+
+  // —— 右：测评画像表（9 维，真样张=output/cases/JD158__CV1/画像.md；答卷计分产出，表头+网格先出，再一列一列填） ——
+  let REPORT = {                                              // let：接真后端时 rows 被 applyPortrait 换成真画像（样张仅作占位）
+    cols: ['维度','倾向','置信'],
+    rows: [
+      ['冲突应对','低(1.0)','高'],
+      ['协作主动性','低(1.0)','高'],
+      ['反馈接受','低(1.0)','高'],
+      ['求助与边界','中(1.5)','中'],
+      ['抗压稳定','低(1.0)','高'],
+      ['被忽视·不公的反应','低(1.0)','高'],
+      ['投入·嵌入倾向','低(1.0)','高'],
+      ['外部机会敏感','中(2.0)','高'],
+      ['尽责·可靠','低(1.0)','高'],
+    ]
+  };
+  const repHead = document.getElementById('repHead');
+  const repBody = document.getElementById('repBody');
+  REPORT.cols.forEach(c => { const th=document.createElement('th'); th.textContent=c; repHead.appendChild(th); });
+  let cellEls = REPORT.rows.map(row => {                      // 先建空表骨架（表头+网格已就位，单元格待填）；接真画像时 applyPortrait 重建
+    const tr = document.createElement('tr');
+    const tds = row.map(() => { const td=document.createElement('td'); tr.appendChild(td); return td; });
+    repBody.appendChild(tr);
+    return tds;
+  });
+  // —— 把后端真画像/真名牌灌进右侧 9 维表与左下名牌（接真后端 2026-06-13）：只换"数据来源"，动效/布局/字速一律不碰 ——
+  function applyPortrait(p){
+    if (!p || !Array.isArray(p.scores) || !p.scores.length) return;   // 没真数据＝保留样张占位，不静默崩
+    const fmt = v => (v == null ? '未知' : (Number.isInteger(v) ? v.toFixed(1) : v));
+    REPORT.rows = p.scores.map(s => [ s.dim,
+        s.lean == null ? '未知' : `${s.lean_label}(${fmt(s.lean)})`,
+        s.confidence || '—' ]);
+    repBody.innerHTML = '';                                            // 按真维度数重建表体（维度可能≠9），cellEls 同步
+    cellEls = REPORT.rows.map(row => {
+      const tr = document.createElement('tr');
+      const tds = row.map(() => { const td=document.createElement('td'); tr.appendChild(td); return td; });
+      repBody.appendChild(tr); return tds;
+    });
+  }
+  function applyPlate(m){                                              // 左下候选人名牌：换真名 + 真岗位
+    if (!m) return;
+    const nm = document.querySelector('.plate .name'), rl = document.querySelector('.plate .role');
+    if (nm && m.candidate) nm.textContent = m.candidate;
+    if (rl) rl.textContent = '候选人 · ' + (m.jd_id || m.job || '');
+  }
+  function applyCandidate(c){                                          // 人设独白 + 行为手册藏卡 → 真候选人（接真后端）
+    if (!c) return;
+    if (c.persona) PERSONA = c.persona;                               // streamPersona 打这段
+    if (Array.isArray(c.playbook) && c.playbook.length){
+      const lab = document.querySelector('#pbCard .clabel');
+      if (lab) lab.innerHTML = `行为手册 · ${c.name || '候选人'} <b>✻ ${c.playbook.length}</b> ∷ 蒸馏器产出 · 点头像收起`;
+      const body = document.getElementById('pbBody');
+      if (body){
+        const foot = body.querySelector('.pb-foot');                 // 审计四依据说明=通用，保留
+        body.innerHTML = '';
+        c.playbook.forEach(r => { const d=document.createElement('div'); d.textContent=r; body.appendChild(d); });
+        if (foot) body.appendChild(foot);
+      }
+    }
+  }
+  async function applyScenes(){                                        // 起手场景卡=真库第一幕（接真后端）；场景库 loadScenes 仍自拉真库
+    try {
+      const r = await fetch('/api/scenes');
+      if (!r.ok) return;
+      const arr = (await r.json()).scenes || [];
+      if (!arr.length) return;
+      const s0 = arr[0];
+      SCENE.title = s0.title || SCENE.title;
+      SCENE.meta = '类别：' + (s0.category || '');
+      SCENE.body = s0.sketch || '';
+      SCENE.conflict = '';                                             // 真库幕无单列"核心冲突"（已融在介绍里）→不打这行
+      SCENE.cast = s0.owner_hints ? ('团队成员：' + s0.owner_hints) : '';
+    } catch(e){ /* 保留样张；loadScenes 会显式报"未连服务" */ }
+  }
+  // 界面2 静态件快照（标签/题注/表头/脚注）：退场倒放会删空，后退回界面2 时瞬时还原
+  const S2_STATICS = ['#scenePanel > .sc-label','#personaPanel .sc-label','#reportPanel caption','#repHead','#reportPanel .rep-foot']
+    .map(s => { const el = document.querySelector(s); return { el, html: el.innerHTML }; });
+  // 人设样例（占位，真实由蒸馏器产出：200-300 词第二人称；末句"未知"=evidence or silence 纪律）
+  let PERSONA = '你是王先生，三年内容运营，习惯让数据替你说话——判断和别人冲突时，你先回去核数，再决定开不开口。\n你不爱当众争执，被否定时第一反应是收住情绪找台阶，事后私下解决；这让你显得稳，也让你偶尔吃哑巴亏。任务边界不清时，你会先问清验收标准再动手，但开口求助之前，你通常自己先扛一阵。\n你在意做出来的东西有没有人用，对外部机会保持不主动也不拒绝的敏感。简历和答卷里没有带团队的证据，这一面未知。';
+  async function streamReport(){
+    document.getElementById('reportPanel').classList.add('on');   // 空表框+表头先淡入
+    await sleep(450);
+    for (let c=0;c<REPORT.cols.length;c++)                          // 一列
+      for (let r=0;r<REPORT.rows.length;r++){                       // 从上到下
+        await typeInto(cellEls[r][c], REPORT.rows[r][c], 20);       // 字速=作者 2026-06-11 三调（减半后再提速约 1/4）
+        await sleep(40);
+      }
+  }
+  async function streamPersona(){                                   // 人设与其他卡同时开打（2026-06-11 作者批注：不再等表格流完）
+    const pp = document.getElementById('personaPanel');             // 顶边贴齐画像表实际底边（表骨架先建好，开打时尺寸已定）
+    pp.style.top = (document.getElementById('reportPanel').getBoundingClientRect().bottom + 26) + 'px';
+    pp.classList.add('on');
+    await termType(document.getElementById('personaBody'), PERSONA, 12);   // 字速=作者 2026-06-11 三调（提速约 1/4）
+  }
+
+  // ============ 7) 渲染循环 ============
+  const SCAN_PERIOD=12.0, SCAN_SWEEP=8.5;
+  let t=0, idleSpin=0;                                           // idleSpin=闲置自转的附加偏角（不并进 yaw，退出闲置就近归零）
+  function frame(){
+    t += 0.016;
+    progress += (progressTarget-progress) * (phase==='formed' ? 0.00625 : 0.0125);   // 界面2 凝聚再慢一半（2026-06-12 作者拍）；藏卡散聚（操作台/总结页）保持 0.0125
+    npcProgress += (npcProgressTarget-npcProgress) * 0.00625;          // 团队头独立散聚：速度=界面2 凝聚（作者拍"和界面2一样"）
+    if (npcMelt < npcMeltTarget) npcMelt = Math.min(npcMeltTarget, npcMelt + 0.0035);   // 融化匀速下扫（~4.8s 全融）；清零走直赋不走动画
+    const nowS = performance.now()/1000;                               // 自旋用真实时间步进：急速段时长不随屏幕刷新率漂（2026-06-11 作者二调）
+    const dtS = spinClk ? Math.min(nowS - spinClk, 0.05) : 0.016; spinClk = nowS;
+    if (spinMode==='idle') spinVel += (0.05 - spinVel) * Math.min(dtS*1.2, 1);   // 首页待机：星空恒速慢漂 0.05 rad/s
+    else if (spinMode==='slow') spinVel = Math.min(0.25, spinVel + 0.20*dtS);    // 投喂后：1s 内匀加速 0.05→0.25 rad/s（分析期保持 0.25）
+    else if (spinMode==='rush') spinVel = Math.min(spinVel * Math.exp(1.128*dtS), 10.0); // 纯指数加速：2.5s 全程越转越快（0.25→~4.2 rad/s），10 只是保险帽
+    else spinVel *= Math.exp(-dtS*0.9);                                // 凝聚开始后缓慢泄劲：涡旋边收拢边停
+    spinAng += spinVel * dtS;
+    if (dragging) { /* 自由旋转 */ }
+    else if (TUNE) { /* 调参模式：不自动回正——转到哪停哪（2026-06-11 作者批注） */ }
+    else if (phase==='report') { yaw += (repYaw - yaw) * repEaseTurn;                        // 总结页：转到总结朝向（慢速）
+      pitch += (repPitch - pitch) * repEaseTurn; }
+    else if (phase==='entering') { yaw += (backYaw - yaw) * easeTurn;                        // 进操作台：转到背面角度
+      pitch += (backPitch - pitch) * easeTurn; }
+    else if (phase==='formed') { yaw += (frontYaw - yaw) * easeTurn;                         // 正脸缓动（开局凝聚时已被 onAnalysisDone 直接钉正，这里主要服务 3→2 返航的转身）
+      pitch += (frontPitch - pitch) * easeTurn; }
+    else { yaw += yawVel; yawVel *= 0.95; pitch += pitchVel; pitchVel *= 0.95; }             // 散开态：惯性自由转
+    const em = (phase==='report') ? repEaseMove : easeMove;                                  // 总结页过渡用慢速
+    scale += (scaleT-scale)*em; offX += (offXT-offX)*em; offY += (offYT-offY)*em;            // 缩小+移位缓动
+    if (phase==='entering' && !topShown && Math.abs(scale-scaleT)<0.01
+        && Math.abs(yaw-backYaw)<0.04 && Math.abs(pitch-backPitch)<0.04){
+      if (npcProgressTarget < 1) npcProgressTarget = 1;                                      // 候选人变换到位 → 团队头从下往上凝聚
+      else if (npcProgress > 0.98){ topShown = true; revealConsole(); }                      // 团队头凝完 → 才开始打印
+    }
+    if (phase==='report' && !repShown && Math.abs(scale-scaleT)<0.01 && Math.abs(yaw-repYaw)<0.04){
+      repShown = true; revealReport();                                                       // 候选人头变换到总结位 → 数据块依次打印
+    }
+    const idleMs = performance.now()-lastInput;                // 闲置=匀速顺时针自转（2026-06-12 作者拍，原正弦轻摆退役）；界面2/4 都有；调参模式不转
+    if (!dragging && !TUNE && phase!=='entering' && idleMs > 3000){
+      idleSpin += 0.022 * Math.min(1, (idleMs-3000)/2000) * dtS;   // 速度=原轻摆峰值角速度 0.10×0.22（作者拍"速度不变"）；2s 淡入防猛拧
+      if (idleSpin > 6.2832) idleSpin -= 6.2832;                   // 满圈清零：偏移永远落在一圈内
+    } else if (idleSpin){                                          // 退出闲置：就近收回 0（转过半圈就顺势补完整圈）——防"累积自动转跑偏"老毛病
+      idleSpin = idleSpin > 3.1416 ? idleSpin + (6.2832 - idleSpin) * 0.08 : idleSpin * 0.92;
+      if (idleSpin < 0.01 || 6.2832 - idleSpin < 0.01) idleSpin = 0;
+    }
+    let scanY=-1000.0, scanY2=-1000.0;
+    if (progress>0.98){                                        // 凝聚成型之后才开扫描（2026-06-11 作者批注）；2/3/4 界面同速循环（作者 2026-06-10 拍）
+      if (scanStart<0){ scanStart=t; startReveal(); }          // 成型同一刻：扫描启动 + 界面2信息卡开始打印（2026-06-11 作者二调）
+      const cyc=(t-scanStart)%SCAN_PERIOD;
+      if (cyc<SCAN_SWEEP){ let q=cyc/SCAN_SWEEP; q=q*q*(3.0-2.0*q); scanY = 0.62 - 1.24*q; }
+      const cyc2=(t-scanStart+SCAN_PERIOD/2)%SCAN_PERIOD;      // 团队头错半个周期：同频异步（2026-06-11 作者批注）
+      if (cyc2<SCAN_SWEEP){ let q2=cyc2/SCAN_SWEEP; q2=q2*q2*(3.0-2.0*q2); scanY2 = 0.62 - 1.24*q2; }
+    }
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    drawGhost(mainHead, yaw+idleSpin, pitch, scale, offX, offY, 0.88*Math.pow(progress,3), 0);   // 鬼影=遮挡底+雾面（散开态自动隐身）；主头不融化
+    bindPoints(mainHead);                                      // 主头=候选人（原男头）
+    gl.uniform1f(loc.uYaw,yaw+idleSpin); gl.uniform1f(loc.uPitch,pitch); gl.uniform1f(loc.uProgress,progress);
+    gl.uniform1f(loc.uMelt, 0.0); gl.uniform1f(loc.uLocal, 0.0);
+    gl.uniform1f(loc.uTime,t); gl.uniform1f(loc.uScanY,scanY); gl.uniform1f(loc.uDir,dirHead);
+    gl.uniform1f(loc.uSpin,spinAng);
+    gl.uniform1f(loc.uDpr,DPR); gl.uniform1f(loc.uAspect,W/H);
+    gl.uniform1f(loc.uScale,scale); gl.uniform1f(loc.uOffX,offX); gl.uniform1f(loc.uOffY,offY);
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.uniform1f(loc.uGlow,0.0);
+    gl.drawArrays(gl.POINTS,0,N);
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE, gl.ZERO, gl.ONE); gl.uniform1f(loc.uGlow,1.0);   // 辉光只加色、不动透明度
+    gl.drawArrays(gl.POINTS,0,N);
+    if (phase==='entering') npcScaleCur = (npcProgressTarget > 0 || npcProgress > 0.02) ? npcScale : 0;   // 操作台：开始凝聚才现身（候选人飞行途中不先挂一团散云）
+    else if (phase==='report' || phase==='formed')
+      npcScaleCur = (npcMeltTarget > 0 && npcMelt < 0.985) ? npcScale : 0;   // 融化演完才撤场（3→4 与 3→2 共用）
+    else npcScaleCur = 0;
+    if (npcScaleCur > 0.005){                                  // 团队头（陈莉=女头建模）：独立散聚进度（主头藏卡散开不再牵连团队头）
+      drawGhost(npcHead, npcYaw+fYawOff, npcPitch, npcScaleCur, npcOffX, npcOffY, 0.88 * Math.pow(npcProgress,3), npcMelt);
+      bindPoints(npcHead);
+      gl.uniform1f(loc.uYaw,npcYaw+fYawOff); gl.uniform1f(loc.uPitch,npcPitch);
+      gl.uniform1f(loc.uProgress, npcProgress);
+      gl.uniform1f(loc.uMelt, npcMelt);                        // 退场=融化（粒子从上往下消失），不再散回星空
+      gl.uniform1f(loc.uLocal, 1.0);                           // 局部凝聚：粒子只在肩头一小团里打转、从下往上长出（作者拍：不从全屏汇聚）
+      gl.uniform1f(loc.uDir, 0.0);                             // 团队头：凝聚从下往上
+      gl.uniform1f(loc.uScanY,scanY2);                         // 团队头扫描：同频、错半周期（异步，2026-06-11 作者批注）
+      gl.uniform1f(loc.uScale,npcScaleCur); gl.uniform1f(loc.uOffX,npcOffX); gl.uniform1f(loc.uOffY,npcOffY);
+      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.uniform1f(loc.uGlow,0.0);
+      gl.drawArrays(gl.POINTS,0,N);
+      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE, gl.ZERO, gl.ONE); gl.uniform1f(loc.uGlow,1.0);
+      gl.drawArrays(gl.POINTS,0,N);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // ====== 临时 · 操作台调参模式（?tune=1）：直达操作台 + 拖卡定位 + 批注 + 导出 ======
+  // 手册 §9 习惯：作者拖定/写批注 → 导出 JSON 念给工程师 → 钉死数值后整块删除（调好即删）
+  if (TUNE) {
+    portal.classList.add('gone');
+    document.getElementById('rain').classList.add('on');       // 字符雨改 JS 开关后，调参模式直接点亮
+    progress = 1; progressTarget = 1; scanStart = 0;           // 头直接成型；scanStart≥0 顺带屏蔽界面2打印触发
+    dirHead = 1;
+    if (TUNE === '2') {                                        // 总结页调参：直接落在状态④
+      yaw = repYaw; pitch = repPitch;
+      scale = scaleT = REP.scale; offX = offXT = REP.offX; offY = offYT = REP.offY;
+      phase = 'report';                                        // frame 首帧判"已到位" → revealReport()（打字瞬时）
+    } else if (TUNE === '3') {                                 // 界面2 调参：正脸居中 + 三卡 + 场景库点选区
+      yaw = frontYaw; pitch = frontPitch;
+      scale = scaleT = 1; offX = offXT = 0; offY = offYT = 0;
+      dirHead = 0;
+      phase = 'formed';
+      startReveal();                                           // TUNE 下打字瞬时上屏；内含 loadScenes 拉真库（须从 /landing 访问）
+    } else {                                                   // 操作台调参
+      yaw = backYaw; pitch = backPitch;
+      scale = scaleT = END.scale; offX = offXT = END.offX; offY = offYT = END.offY;
+      phase = 'entering';                                      // frame 首帧判"已到位" → revealConsole()（打字瞬时）
+    }
+    const CARDS = TUNE === '2'
+      ? [['rpProc','过程回放'],['rpAudit','理由核查汇总'],['rpSway','选择坚定度'],
+         ['rpNext','下一步建议'],['rpRisks','风险判据表']]
+      : TUNE === '3'
+      ? [['scenePanel','场景卡(含场景库)'],                      // 2026-06-12 作者拍两卡合一：场景库小节随场景卡走，不再单独拖
+         ['reportPanel','测评画像表'],['personaPanel','人设']]
+      : [['sceneTop','本幕剧情(顶部)'],['boxLights','相处信号灯'],['boxTeam','团队成员反应'],
+         ['boxInner','他的心里话'],['boxLedger','事实存档'],['boxOptions','本幕选择+理由核查'],
+         ['pbCard','行为手册(藏卡)']];
+    const HEADS = TUNE === '1' ? [['__head','候选人头'],['__npc','团队头']]   // 操作台双头；界面2/总结页只有候选人头
+      : [['__head','候选人头']];                                // 头可移动：选中后拖画布或方向键（NDC 坐标）
+    if (TUNE === '1') document.getElementById('pbCard').classList.add('on');  // 调参态把手册藏卡直接亮出来摆位置
+    const ALL = [...CARDS, ...HEADS];
+    const notes = {}, zooms = {}; let sel = null;              // zooms=每卡字号倍率（CSS zoom，导出后由工程师换算成真 px 钉死）
+    const headPos = id => id === '__head' ? { x: offX, y: offY } : { x: npcOffX, y: npcOffY };
+    function moveHead(id, dx, dy){                             // dx/dy 为 NDC 增量（x 右正、y 上正）
+      if (id === '__head'){ offX = offXT = offX + dx; offY = offYT = offY + dy; }
+      else { npcOffX += dx; npcOffY += dy; }
+    }
+    tuneHeadMove = (dx, dy) => {                               // 画布拖拽：选中头时像素增量换算 NDC 移头
+      if (!sel || !sel.startsWith('__')) return false;
+      moveHead(sel, dx / W * 2, -dy / H * 2); renderList(); return true;
+    };
+    const st = document.createElement('style');
+    st.textContent = `
+      .tunable { pointer-events:auto !important; cursor:move; }
+      .tunable.tsel { outline:1px dashed rgba(255,212,121,.8); outline-offset:8px; }
+      #tunePanel { position:fixed; top:64px; right:18px; z-index:99; width:300px; pointer-events:auto;
+        font:11px/1.8 Consolas,monospace; color:#cfd6e4; background:rgba(4,6,10,.9);
+        border:1px solid rgba(255,255,255,.2); padding:12px 14px; user-select:none; }
+      #tunePanel .trow { display:flex; justify-content:space-between; cursor:pointer; padding:1px 4px; }
+      #tunePanel .trow.tsel { background:rgba(255,212,121,.15); color:#ffd479; }
+      #tunePanel .trow i { font-style:normal; opacity:.7; }
+      #tunePanel textarea { width:100%; height:44px; margin-top:4px; background:rgba(255,255,255,.06);
+        color:#e8ecf4; border:1px solid rgba(255,255,255,.18); font:11px/1.5 Consolas,monospace;
+        padding:4px 6px; resize:vertical; box-sizing:border-box; }
+      #tunePanel button { margin-top:8px; width:100%; padding:5px 0; background:rgba(255,255,255,.1);
+        color:#e8ecf4; border:1px solid rgba(255,255,255,.25); cursor:pointer; font:11px Consolas,monospace; }
+      #tunePanel .hint { margin-top:6px; opacity:.55; }`;
+    document.head.appendChild(st);
+    const pan = document.createElement('div'); pan.id = 'tunePanel';
+    pan.innerHTML = `<div id="tTtl" style="letter-spacing:.2em; margin-bottom:6px; cursor:move;">∷ ${TUNE==='2'?'总结页':TUNE==='3'?'界面2':'操作台'}调参（拖此行移面板）</div>
+      <div id="tList"></div>
+      <div style="margin-top:8px;">批注（先点选一张卡）</div><textarea id="tNote" placeholder="对选中卡片的批注…"></textarea>
+      <div style="margin-top:6px;">总批注</div><textarea id="tAll" placeholder="整体意见…"></textarea>
+      <button id="tExp">导出位置＋批注（复制到剪贴板）</button>
+      <textarea id="tOut" readonly placeholder="导出的 JSON 同时显示在这"></textarea>
+      <div class="hint">卡片：方向键 0.1 / Shift 1.0 ｜ <b>字号：选中卡后按 - / = 缩放</b> ｜ 头：选中后拖画布=挪位置，方向键 0.01 / Shift 0.05<br>转头：不选中任何行、直接拖画布——转到哪停哪 ｜ 调参态卡片只能拖、卡内按钮点不了 ｜ 导出后把 JSON 发给工程师钉死</div>`;
+    document.body.appendChild(pan);
+    document.getElementById('tTtl').addEventListener('pointerdown', e => {   // 面板自身可拖（标题行=把手）
+      e.preventDefault();
+      const r = pan.getBoundingClientRect(), x0 = e.clientX, y0 = e.clientY;
+      pan.style.right = 'auto';
+      const move = ev => { pan.style.left = (r.left + ev.clientX - x0) + 'px';
+                           pan.style.top  = (r.top  + ev.clientY - y0) + 'px'; };
+      const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); };
+      addEventListener('pointermove', move); addEventListener('pointerup', up);
+    });
+    const vw = px => px / innerWidth * 100, vh = px => px / innerHeight * 100;
+    const getPos = el => { const cs = getComputedStyle(el);
+      return { l: vw(parseFloat(cs.left)), t: vh(parseFloat(cs.top)) }; };
+    function renderList(){
+      document.getElementById('tList').innerHTML = ALL.map(([id, name]) => {
+        const v = id === '__head'
+          ? `${offX.toFixed(2)},${offY.toFixed(2)} ∷ 转${yaw.toFixed(2)} 俯${pitch.toFixed(2)}`
+          : id === '__npc'
+          ? (h => `${h.x.toFixed(3)} · ${h.y.toFixed(3)} ndc`)(headPos(id))
+          : (p => `${p.l.toFixed(2)}vw · ${p.t.toFixed(2)}vh${zooms[id] && zooms[id] !== 1 ? ` ∷ ×${zooms[id].toFixed(2)}` : ''}`)(getPos(document.getElementById(id)));
+        return `<div class="trow${sel===id?' tsel':''}" data-id="${id}"><span>${name}${notes[id]?' ✎':''}</span>` +
+               `<i>${v}</i></div>`;
+      }).join('');
+    }
+    setInterval(renderList, 500);                              // 角度读数随手转实时刷新（调参专用，调好即删）
+    function select(id, toggle){
+      sel = (toggle && sel === id) ? null : id;                // 列表行再点一次=取消选中（取消后拖画布=转头）
+      CARDS.forEach(([i]) => document.getElementById(i).classList.toggle('tsel', i === sel));
+      document.getElementById('tNote').value = sel ? (notes[sel] || '') : '';
+      renderList();
+    }
+    document.getElementById('tList').addEventListener('click', e => {
+      const r = e.target.closest('.trow'); if (r) select(r.dataset.id, true); });
+    document.getElementById('tNote').addEventListener('input', e => {
+      if (sel){ notes[sel] = e.target.value; renderList(); } });
+    for (const [id] of CARDS){
+      const el = document.getElementById(id);
+      el.classList.add('tunable');
+      el.addEventListener('pointerdown', e => {
+        e.preventDefault(); e.stopPropagation(); select(id);
+        const cs = getComputedStyle(el);
+        const l0 = parseFloat(cs.left), t0 = parseFloat(cs.top), x0 = e.clientX, y0 = e.clientY;
+        const move = ev => { el.style.left = vw(l0 + ev.clientX - x0).toFixed(2) + 'vw';
+                             el.style.top  = vh(t0 + ev.clientY - y0).toFixed(2) + 'vh'; renderList(); };
+        const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); };
+        addEventListener('pointermove', move); addEventListener('pointerup', up);
+      });
+    }
+    addEventListener('keydown', e => {
+      if (!sel || /TEXTAREA|INPUT/.test(e.target.tagName)) return;
+      if ((e.key === '-' || e.key === '=') && !sel.startsWith('__')){   // 字号缩放：- 缩 / = 放（每档 5%）
+        e.preventDefault();
+        zooms[sel] = Math.max(0.5, Math.min(2, +((zooms[sel] || 1) + (e.key === '=' ? 0.05 : -0.05)).toFixed(2)));
+        document.getElementById(sel).style.zoom = zooms[sel];
+        renderList(); return;
+      }
+      if (!e.key.startsWith('Arrow')) return;
+      e.preventDefault();
+      if (sel.startsWith('__')){                               // 头：NDC 步进（y 上正）
+        const s = e.shiftKey ? 0.05 : 0.01;
+        moveHead(sel, e.key === 'ArrowLeft' ? -s : e.key === 'ArrowRight' ? s : 0,
+                      e.key === 'ArrowUp'   ?  s : e.key === 'ArrowDown'  ? -s : 0);
+        renderList(); return;
+      }
+      const el = document.getElementById(sel), p = getPos(el), s = e.shiftKey ? 1 : 0.1;
+      if (e.key === 'ArrowLeft')  el.style.left = (p.l - s).toFixed(2) + 'vw';
+      if (e.key === 'ArrowRight') el.style.left = (p.l + s).toFixed(2) + 'vw';
+      if (e.key === 'ArrowUp')    el.style.top  = (p.t - s).toFixed(2) + 'vh';
+      if (e.key === 'ArrowDown')  el.style.top  = (p.t + s).toFixed(2) + 'vh';
+      renderList();
+    });
+    document.getElementById('tExp').addEventListener('click', () => {
+      const data = { 总批注: document.getElementById('tAll').value || '' };
+      for (const [id, name] of CARDS){
+        const el = document.getElementById(id), p = getPos(el);
+        data[id] = { 名称: name, left: p.l.toFixed(2) + 'vw', top: p.t.toFixed(2) + 'vh',
+                     width: vw(el.getBoundingClientRect().width).toFixed(2) + 'vw',
+                     字号倍率: +(zooms[id] || 1).toFixed(2), 批注: notes[id] || '' };
+      }
+      for (const [id, name] of HEADS){
+        const h = headPos(id);
+        data[id] = { 名称: name, offX: +h.x.toFixed(3), offY: +h.y.toFixed(3), 批注: notes[id] || '' };
+        if (id === '__head'){ data[id].yaw = +yaw.toFixed(3); data[id].pitch = +pitch.toFixed(3); }   // 角度也导出（2026-06-11 作者要调角度）
+      }
+      const j = JSON.stringify(data, null, 2);
+      document.getElementById('tOut').value = j;
+      if (navigator.clipboard) navigator.clipboard.writeText(j).catch(()=>{});
+      console.log(j);
+    });
+    renderList();
+  }
+
+  // 测试探针（只读、无副作用）：E2E 验证用，读当前导航状态
+  window.__dbg = () => ({ phase, beatIdx, consoleDone, navBusy, repShown, procOpen, revealed, progress: +progress.toFixed(3),
+    spinMode, spinVel: +spinVel.toFixed(4), idleSpin: +idleSpin.toFixed(4) });
+
+  syncTyped();
+  frame();
+})();
+</script>
+</body>
+</html>

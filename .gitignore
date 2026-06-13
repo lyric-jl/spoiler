@@ -3,3 +3,9 @@ __pycache__/
 output/
 data/custom_scenes.json
 .playwright-mcp/
+
+# 调试/临时产物、备份副本（2026-06-13）
+_run_events.*
+测评作答记录.md
+*备份*.html
+_commit_msg.txt

@@ -26,7 +26,8 @@ def _coerce_options(raw) -> list[dict]:
     if isinstance(raw, list):
         for i, o in enumerate(raw):
             if isinstance(o, dict) and o.get("text"):
-                opts.append({"id": str(o.get("id") or "ABCD"[i % 4]), "text": str(o["text"])})
+                opts.append({"id": str(o.get("id") or "ABCD"[i % 4]), "text": str(o["text"]),
+                             "tag": str(o.get("tag") or "")})   # 倾向标签：只供旁观面板，演员提示词不渲染它
     return opts
 
 
@@ -128,10 +129,13 @@ def _run_beat(*, llm, actor_llm, audit_llm, cast: Cast, beat_no: int, scene_idx:
         beat["warnings"].append(f"选项数异常（{len(options)} 个），照常继续")
     rounds = _build_presentations(options, rng)
     presented = rounds[0]
+    # 旁观面板的展示副本带倾向标签（2026-06-12 作者拍）；演员/审计走不带标签的 presented，结构上防泄
+    tagmap = {o["id"]: o.get("tag", "") for o in options}
+    presented_show = [{**p, "tag": tagmap.get(p["orig_id"], "")} for p in presented]
     beat["options_original"] = options
-    beat["options"] = presented
+    beat["options"] = presented_show
     emit({"type": "beat_open", "scene": scene_idx, "beat": beat_no, "narration": narration,
-          "juncture": beat["juncture"], "actor": actor, "options": presented})
+          "juncture": beat["juncture"], "actor": actor, "options": presented_show})
 
     vis_ledger = visible(ledger, actor)
     hid_ledger = [e for e in ledger if e not in vis_ledger]

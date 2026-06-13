@@ -1,6 +1,7 @@
 # sandbox3/server.py
 """操作台本地服务（stdlib，零第三方依赖；名单制多人原生底座）。
-路由：GET / 页面；GET /api/state 状态；GET /api/events?since=N 事件流（轮询）；
+路由：GET / 页面；GET /landing 新前端（粒子首页+界面2，静态资产同源伺服）；
+GET /api/state 状态；GET /api/events?since=N 事件流（轮询）；GET /api/scenes 场景库全量；
 GET /api/batch_latest 最新批聚合；GET /api/cases 样本+预备案例；GET /api/prep_state 备料进度；
 POST /api/run 开拍；/api/chat 场景共创；/api/crystallize 共创结晶入库（走 BANK.add_custom）；
 /api/import_cast 导入整套名单；/api/jd 暂存自由文本 JD；
@@ -20,6 +21,10 @@ from urllib.parse import urlparse, parse_qs
 
 from . import config
 from . import prepare
+from . import quiz_answer
+from . import quiz_gen
+from . import answersheet
+from . import jd_parse
 from .cast import Cast, CastError
 from .engine import run_simulation
 from .llm import LLMClient, LLMError
@@ -36,17 +41,29 @@ WRITER_LLM = None       # main() 实配 LLMClient("writer")，备料管线用
 CAST = Cast.load_default()
 BANK = SceneBank()
 
+# 新前端（landing.html + head.glb 等）所在目录；_serve_static 只许伺服此目录内的真实文件
+_STATIC_DIR = pathlib.Path(__file__).parent / "pages" / "static"
+_MIME = {".html": "text/html; charset=utf-8", ".glb": "model/gltf-binary",
+         ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
+         ".png": "image/png", ".jpg": "image/jpeg", ".md": "text/plain; charset=utf-8"}
+
 # jd_text=驱动场景导演二次贴岗 + 落盘记 JD（JD 驱动后启用）；
 # prep=备料进度/产物（JD→画像+名单+场景的前段管线状态）。
 STATE = {"running": False, "events": [], "jd": "", "jd_text": "",
          "prep": {"running": False, "log": [], "ready": False, "error": None,
-                  "portrait": None, "meta": None}}
+                  "portrait": None, "meta": None},
+         "quiz": {"running": False, "log": [], "ready": False, "error": None, "result": None}}
 LOCK = threading.Lock()
 
 
 def _fresh_prep() -> dict:
     return {"running": False, "log": [], "ready": False, "error": None,
             "portrait": None, "meta": None}
+
+
+def _fresh_quiz() -> dict:
+    # 测评页出题状态（与首页"运行项目"分干净：出题只在这条线）
+    return {"running": False, "log": [], "ready": False, "error": None, "result": None}
 
 
 def _emit(event: dict) -> None:
@@ -109,6 +126,57 @@ def _prep_thread(jd_name: str, cv_name: str) -> None:
             STATE["prep"]["running"] = False
 
 
+def _quiz_log(msg: str) -> None:
+    with LOCK:
+        STATE["quiz"]["log"].append(msg)
+
+
+def _quiz_thread(jd_name: str, jd_text: str = "") -> None:
+    """测评页：按 JD 并行出全维题。出题=测评卷网页独有功能，与星空首页"运行项目"分干净（边界红线）。
+    jd_text 非空＝用户粘贴的自由文本 JD，先 LLM 解析成结构化；否则按 jd_name 加载样本。"""
+    try:
+        if jd_text.strip():
+            _quiz_log("解析岗位 JD（自由文本 → 结构化）…")
+            jd = jd_parse.parse_jd(WRITER_LLM or LLM, jd_text)
+            _quiz_log(f"✓ JD 已结构化：{jd.get('职位名称', '')}")
+        else:
+            jd = prepare.load_jd(jd_name)                # 包过的 load_jd：找不到抛 FileNotFoundError
+        by_dim, failed = quiz_gen.gen_all_dims(WRITER_LLM or LLM, jd, progress=_quiz_log)
+        if not by_dim:
+            raise quiz_gen.LLMError(f"全部维度出题都失败：{failed}——查编剧模型 Key 或稍后重试")
+        with LOCK:
+            STATE["quiz"]["result"] = {"job": jd.get("职位名称", ""), "jd_id": jd.get("_jd_id", ""),
+                                       "jd": jd, "jd_name": jd_name, "by_dim": by_dim, "failed": failed}
+            STATE["quiz"]["ready"] = True
+        _quiz_log(f"✓ 出题完成（{len(by_dim)} 维"
+                  f"{('，跳过 ' + '、'.join(failed)) if failed else ''}），可开始作答")
+    except Exception as e:                               # noqa: BLE001 出题失败必须亮到页面
+        with LOCK:
+            STATE["quiz"]["error"] = f"{type(e).__name__}: {e}"
+            STATE["quiz"]["log"].append(f"✗ 出题失败：{type(e).__name__}: {e}")
+    finally:
+        with LOCK:
+            STATE["quiz"]["running"] = False
+
+
+def _run_project_thread(md_text: str) -> None:
+    """星空首页"运行项目"：吃拖入的答卷.md（内嵌结构化JD）→ run_from_answers（计分→蒸馏→搭班→场景，
+    **不出题不答题**，守边界红线）→装进运行态。复用 STATE["prep"] 状态机，首页轮询 /api/prep_state。"""
+    try:
+        data = answersheet.parse_md(md_text)             # 解析失败抛 ValueError→落到下面 except 亮页面
+        result = prepare.run_from_answers(WRITER_LLM or LLM, data["jd"], data["answers_by_dim"],
+                                          name=data.get("name", ""), progress=_prep_log)
+        _apply_prepared(result)
+        _prep_log("✓ 项目就绪，可开始推演")
+    except Exception as e:                               # noqa: BLE001 失败必须亮到页面
+        with LOCK:
+            STATE["prep"]["error"] = f"{type(e).__name__}: {e}"
+            STATE["prep"]["log"].append(f"✗ 运行项目失败：{type(e).__name__}: {e}")
+    finally:
+        with LOCK:
+            STATE["prep"]["running"] = False
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):                       # 安静点，错误仍走 stderr
         pass
@@ -150,6 +218,27 @@ class Handler(BaseHTTPRequestHandler):
                             "prep_running": STATE["prep"]["running"],
                             "prep_ready": STATE["prep"]["ready"],
                             "case": STATE["prep"]["meta"]})
+        elif u.path == "/api/scenes":
+            with LOCK:
+                self._json({"scenes": [dict(t) for t in BANK.all()]})
+        elif u.path == "/api/quiz_demo":
+            # 动态测评演示页数据源：最新备料案例的真 AIG 卷（?dims=N 节选前 N 维，缺省 3）
+            try:
+                cases = sorted(config.OUTPUT_DIR.glob("cases/*/quiz.json"),
+                               key=lambda p: p.stat().st_mtime)
+                if not cases:
+                    self._json({"error": "没有任何备料案例（先跑一次 /api/prepare）"}, 404)
+                    return
+                case = cases[-1].parent
+                quiz = json.loads((case / "quiz.json").read_text(encoding="utf-8"))
+                meta = json.loads((case / "meta.json").read_text(encoding="utf-8"))
+                n = max(1, int((parse_qs(u.query).get("dims") or ["3"])[0]))
+                dims = [{"id": k, "risk": (qs[0].get("风险") or ""), "questions": qs}
+                        for k, qs in list(quiz["by_dim"].items())[:n]]
+                self._json({"jd_id": meta.get("jd_id"), "jd_name": meta.get("jd_name"),
+                            "job": meta.get("job", ""), "dims": dims})
+            except (OSError, json.JSONDecodeError, ValueError) as e:
+                self._json({"error": f"读测评卷失败：{e}"}, 500)
         elif u.path == "/api/cases":
             try:
                 self._json({"samples": prepare.available_samples(),
@@ -159,9 +248,21 @@ class Handler(BaseHTTPRequestHandler):
         elif u.path == "/api/prep_state":
             with LOCK:
                 p = STATE["prep"]
+                try:                                    # 候选人人设/行为手册（前端起手屏的人设独白+手册藏卡接它）
+                    c = CAST.candidate()
+                    cand = {"name": c.name, "role": c.role, "persona": c.persona,
+                            "playbook": list(c.playbook)}
+                except Exception:                       # noqa: BLE001 没候选人就不给，前端保留样张
+                    cand = None
                 self._json({"running": p["running"], "log": list(p["log"]),
                             "ready": p["ready"], "error": p["error"],
-                            "portrait": p["portrait"], "meta": p["meta"]})
+                            "portrait": p["portrait"], "meta": p["meta"],
+                            "candidate": cand})
+        elif u.path == "/api/quiz_state":
+            with LOCK:
+                q = STATE["quiz"]
+                self._json({"running": q["running"], "log": list(q["log"]),
+                            "ready": q["ready"], "error": q["error"], "result": q["result"]})
         elif u.path == "/api/events":
             since = int((parse_qs(u.query).get("since") or ["0"])[0])
             with LOCK:
@@ -176,7 +277,26 @@ class Handler(BaseHTTPRequestHandler):
                 except (OSError, json.JSONDecodeError) as e:
                     self._json({"error": f"聚合文件读取失败：{e}"}, 500)
         else:
+            self._serve_static(u.path)
+
+    def _serve_static(self, path: str):
+        """/landing 与首页静态资产（head.glb 等）同源伺服——landing 页要调 /api/*，
+        file:// 打开调不到，必须从本服务出。防穿越：resolve 后必须仍在 static 目录内。"""
+        name = "landing.html" if path == "/landing" else path.lstrip("/")
+        fp = _STATIC_DIR / name
+        try:
+            ok = fp.is_file() and fp.resolve().is_relative_to(_STATIC_DIR.resolve())
+        except OSError:
+            ok = False
+        if not ok:
             self._json({"error": "not found"}, 404)
+            return
+        body = fp.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", _MIME.get(fp.suffix.lower(), "application/octet-stream"))
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     # ---- POST ----
     def do_POST(self):
@@ -229,6 +349,69 @@ class Handler(BaseHTTPRequestHandler):
             elif u.path == "/api/jd":
                 with LOCK:
                     STATE["jd"] = str(body.get("text") or "")
+                self._json({"ok": True})
+            elif u.path == "/api/quiz_score":
+                # 演示页计分：与产品同一套 score_dim，零逻辑漂移
+                ans = [{"价值": a.get("价值"), "chosen": a.get("chosen") or {}, "why": ""}
+                       for a in (body.get("answers") or [])]
+                self._json(quiz_answer.score_dim(str(body.get("dim") or ""),
+                                                 str(body.get("risk") or ""), ans))
+            elif u.path == "/api/quiz_probe":
+                # 演示页追题：与备料管线同一台出题器，live 现编 2 道全好变体
+                dim = next((d for d in quiz_gen.DIMENSIONS if d["id"] == body.get("dim")), None)
+                if dim is None:
+                    self._json({"error": f"未知维度：{body.get('dim')!r}"}, 400)
+                    return
+                jd = body.get("jd")
+                if not isinstance(jd, dict) or not jd.get("职位描述"):   # 优先用页面回传的结构（支持粘贴的JD）
+                    try:
+                        jd = quiz_gen.load_jd(str(body.get("jd_name") or ""))
+                    except SystemExit as e:      # load_jd 找不到 JD 时 SystemExit——别让它杀请求线程
+                        self._json({"error": str(e)}, 400)
+                        return
+                try:
+                    qs = quiz_gen.gen_dimension(WRITER_LLM or LLM, jd, dim, 2, 0)
+                except RuntimeError as e:        # 质量闸三试不过：大声失败（live-only，不给假题）
+                    self._json({"error": f"追题现编失败：{e}"}, 500)
+                    return
+                self._json({"questions": qs})
+            elif u.path == "/api/quiz_build":
+                # 测评页：按 JD 现编整卷（9 维并行出题，后台线程，页面轮询 /api/quiz_state）。
+                # 出题只在这条线发生——首页绝不出题（边界红线）。第二批先吃现成结构化 JD158。
+                with LOCK:
+                    if STATE["quiz"]["running"]:
+                        self._json({"error": "出题已在进行，别重复点"}, 409)
+                        return
+                    STATE["quiz"] = _fresh_quiz()
+                    STATE["quiz"]["running"] = True
+                    STATE["quiz"]["log"] = ["开始按 JD 现编测评卷（9 维并行出题，约 1-2 分钟）…"]
+                jd_name = str(body.get("jd") or "JD158_新媒体运营经理")
+                jd_text = str(body.get("jd_text") or "")     # 非空＝用户粘贴的自由文本 JD
+                threading.Thread(target=_quiz_thread, args=(jd_name, jd_text), daemon=True).start()
+                self._json({"ok": True})
+            elif u.path == "/api/quiz_export":
+                # 真人答完→导出答卷.md（页面回传 name/jd/by_dim[含隐藏键]/choices；渲染走 answersheet 单一格式源）
+                md = answersheet.render_md(str(body.get("name") or ""), body.get("jd") or {},
+                                           body.get("by_dim") or {}, body.get("choices") or {})
+                self._json({"ok": True, "md": md,
+                            "filename": f"测评答卷_{body.get('name') or '匿名'}.md"})
+            elif u.path == "/api/run_project":
+                # 星空首页：吃拖入的答卷.md → 运行项目（无出题）。复用 prep 状态机，页面轮询 /api/prep_state。
+                md_text = str(body.get("md") or "")
+                if not md_text.strip():
+                    self._json({"error": "没收到答卷内容（请拖入测评页导出的 .md）"}, 400)
+                    return
+                with LOCK:
+                    if STATE["running"]:
+                        self._json({"error": "推演进行中，先等它收官"}, 409)
+                        return
+                    if STATE["prep"]["running"]:
+                        self._json({"error": "正在运行项目，别重复点"}, 409)
+                        return
+                    STATE["prep"] = _fresh_prep()
+                    STATE["prep"]["running"] = True
+                    STATE["prep"]["log"] = ["读入答卷，运行项目（计分→蒸馏→搭班→场景，无出题）…"]
+                threading.Thread(target=_run_project_thread, args=(md_text,), daemon=True).start()
                 self._json({"ok": True})
             elif u.path == "/api/prepare":
                 self._handle_prepare(body)

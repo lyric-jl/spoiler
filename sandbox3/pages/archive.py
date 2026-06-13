@@ -243,11 +243,11 @@ def build(run_dir: pathlib.Path) -> pathlib.Path:
     page = f"""<!DOCTYPE html>
 <html lang="zh">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>契合沙盘 · 受控选项推演 — {_e(run_dir.name)}</title><style>{CSS}</style></head>
+<title>SPOILER · 受控选项推演 — {_e(run_dir.name)}</title><style>{CSS}</style></head>
 <body><div class="wrap">
 <header>
-  <div class="kicker">FitSandbox · Controlled-Option Rollout</div>
-  <h1>人事观察档案<span class="sub">契合沙盘 · 受控选项推演 MVP（名单制）</span></h1>
+  <div class="kicker">SPOILER · Controlled-Option Rollout</div>
+  <h1>人事观察档案<span class="sub">SPOILER · 受控选项推演 MVP（名单制）</span></h1>
   <div class="meta"><span>观察主体：{_e(cand)}（候选人）</span>
     <span>在场名单：{cast_s}</span>
     <span>模型：{_e(m['model'])}</span><span>幕数：{m['n_scenes']}</span>
@@ -262,7 +262,7 @@ def build(run_dir: pathlib.Path) -> pathlib.Path:
 名单制多人：同事亦为真 agent。</div>
 <div class="traj"><h2>承 诺 轨 迹</h2>{_traj_svg(points)}</div>
 {scenes}
-<footer>契合沙盘 FitSandbox — sandbox3 ／ 架构参照 RELATE-Sim（arXiv 2510.00414）／ 本页由 trace.json 生成</footer>
+<footer>SPOILER — sandbox3 ／ 架构参照 RELATE-Sim（arXiv 2510.00414）／ 本页由 trace.json 生成</footer>
 </div></body></html>"""
     out = run_dir / "档案.html"
     out.write_text(page, encoding="utf-8")

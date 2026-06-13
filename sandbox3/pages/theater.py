@@ -10,7 +10,7 @@ kind 排右列、导演+记录者顶部、中央选项卡+理由），右下=幕
 PAGE = r"""<!DOCTYPE html>
 <html lang="zh">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>契合沙盘 · 操作台</title>
+<title>SPOILER · 操作台</title>
 <style>
 :root{
   --paper:#f3eddd; --card:#fbf7ec; --ink:#2b2620; --muted:#8a7e6a;
@@ -114,6 +114,7 @@ textarea{resize:vertical}
 .votestrip.sway{border-color:var(--flag);background:#b07a1014;color:#e6c98a}
 .votestrip .vnote{display:block;font-size:10px;color:#8a7e6a}
 .opt .vts{color:var(--gold);font-size:10px;margin-left:8px;letter-spacing:2px;white-space:nowrap}
+.opt .otag{color:#8a8576;font-size:10.5px;margin-left:8px;white-space:nowrap}
 svg.wire{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2}
 svg.wire line{stroke:var(--gold);stroke-width:2.5;stroke-dasharray:600;stroke-dashoffset:600;
   filter:drop-shadow(0 0 4px #d8b15e);animation:draw .9s ease forwards .25s}
@@ -162,7 +163,7 @@ table.states td.k{color:var(--muted);width:88px;white-space:nowrap}
 <body>
 <div class="app">
 <aside class="console">
-  <h1>契合沙盘 · 操作台</h1>
+  <h1>SPOILER · 操作台</h1>
   <div class="sub">CONTROLLED-OPTION ROLLOUT · LIVE</div>
   <div class="panes">
     <details open>
@@ -521,8 +522,9 @@ function render(){
     const opts=(c.beat.options||[]).map(o=>{
       const n=vtally[o.orig_id]||0;
       const dots=n?`<span class="vts" title="换序三问中得 ${n} 票">${'●'.repeat(n)}</span>`:'';
+      const tg=o.tag?`<span class="otag">—— ${esc(o.tag)}</span>`:'';   // 倾向标签（导演打标，只给旁观面板；演员看不到）
       return `<div class="opt ${dec&&o.id===dec.action_id?'chosen':''}"
-      id="opt-${o.id}"><span class="oid">${esc(o.id)}</span>${esc(o.text)}${dots}</div>`}).join('');
+      id="opt-${o.id}"><span class="oid">${esc(o.id)}</span>${esc(o.text)}${tg}${dots}</div>`}).join('');
     let votestrip='';
     if(dec&&dec.votes&&dec.votes.length){
       const seq=dec.votes.map(v=>`第${v.round}问→${esc(o2c[v.orig_id]||('原'+v.orig_id))}`).join(' · ');

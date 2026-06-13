@@ -218,3 +218,72 @@ def prepare_case(client, jd_name: str, cv_name: str, *, n_good: int = 2, n_bad: 
     progress(f"备料完成（画像 {len(scores)}/{len(dims)} 维）")
     return {"cast": combined, "portrait": portrait, "scene_bank_path": str(sb_path),
             "jd_text": jd_text, "meta": meta}
+
+
+def run_from_answers(client, jd: dict, answers_by_dim: dict, *, name: str = "",
+                     n_others: int = 3, progress=None) -> dict:
+    """星空首页"运行项目"专用：吃【真人答卷 answers_by_dim + 结构化 JD】→ 画像 + 蒸馏 + 搭班 + 场景，
+    **不出题、不答题**（出题是测评卷网页的活，首页绝不出题——边界红线）。返回结构同 load_prepared。
+
+    answers_by_dim = answersheet.parse_md 的产物：{维度: [{价值,问法,情景,chosen[含 dim_tendency·risk_dir],why}]}。
+    与 prepare_case 的区别：跳过 quiz_gen 出题 + quiz_answer.answer_one 答题，直接用真人选择计分/蒸馏。"""
+    progress = progress or (lambda m: None)
+    jd_id = jd.get("_jd_id", "JD")
+    cv_id = "REAL"                                   # 真人答卷无 CV 样本 id；REAL 占位（单候选人 demo 够用）
+    name = name or "候选人"
+    jd_text = f"{jd.get('职位名称', '')}\n{jd.get('职位描述', '')}"
+    risk_of = {d["id"]: d["risk"] for d in quiz_gen.DIMENSIONS}
+    cvstub = {"姓名": name, "_cv_id": cv_id}
+    cdir = case_dir(jd_id, cv_id)
+    (cdir / "材料").mkdir(parents=True, exist_ok=True)
+
+    # ---- 1) 真人作答 → 计分 → 九维画像（无 LLM：真人已经答完了） ----
+    progress("计分：真人答卷 → 九维画像")
+    scores: list[dict] = []
+    for dim_id, al in answers_by_dim.items():
+        sc = quiz_answer.score_dim(dim_id, risk_of.get(dim_id, ""), al)
+        sc["n_questions"] = len(al)
+        sc["probe_rounds"] = 0                       # 追题已在测评页完成、混在 al 里；首页不再单列轨迹
+        sc["probe_trail"] = [sc["confidence"]]
+        scores.append(sc)
+    if not scores:
+        raise quiz_gen.LLMError("答卷里没有可计分的作答")
+    portrait = {"cv_id": cv_id, "name": name, "jd_id": jd_id, "scores": scores, "failed_dims": []}
+    (cdir / "portrait.json").write_text(
+        json.dumps(portrait, ensure_ascii=False, indent=2), encoding="utf-8")
+    (cdir / "画像.md").write_text(
+        quiz_answer.render_portrait_md(cvstub, jd, scores, real=True), encoding="utf-8")
+    (cdir / "材料" / "测评作答记录.md").write_text(
+        quiz_answer.render_record_md(cvstub, jd, answers_by_dim, real=True), encoding="utf-8")
+
+    # ---- 2) 蒸馏作答记录 → 候选人角色卡（姓名显式传，不靠 LLM 蒸） ----
+    progress("蒸馏作答记录 → 候选人人设卡")
+    cand = distill_card(client, cdir / "材料", jd=jd_text, name=name)
+
+    # ---- 3) 按 JD 现搭团队 ----
+    progress(f"按 JD 现搭团队（{n_others} 人）")
+    team = cast_gen.gen_team(client, jd, n_others, cand)
+    combined = [cand] + team
+    Cast.from_cards(combined)
+    (cdir / "cast.json").write_text(
+        json.dumps(combined, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # ---- 4) 按 JD 重着色场景库 ----
+    progress("按 JD 重着色场景库（保 id/类别/标题，只换皮）")
+    scenes = scene_gen.gen_scenes(client, jd, scene_gen.load_skeleton())
+    sb_path = cdir / "scene_bank.json"
+    sb_path.write_text(json.dumps(scenes, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # ---- 5) 元信息 ----
+    meta = {
+        "jd_id": jd_id, "cv_id": cv_id, "jd_name": jd.get("职位名称", ""), "cv_name": name,
+        "job": jd.get("职位名称", ""), "candidate": name,
+        "n_cast": len(combined), "n_scenes": len(scenes), "jd_text": jd_text,
+        "n_dims_ok": len(scores), "n_dims_req": len(answers_by_dim), "failed_dims": [],
+        "source": "real_answersheet",
+    }
+    (cdir / "meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    progress(f"运行项目就绪（画像 {len(scores)} 维 · 真人答卷）")
+    return {"cast": combined, "portrait": portrait, "scene_bank_path": str(sb_path),
+            "jd_text": jd_text, "meta": meta}

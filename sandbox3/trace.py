@@ -64,7 +64,7 @@ def render(trace: dict) -> str:
     cast_list = m.get("cast") or []
     cast_s = "、".join(f"{c['name']}（{c.get('kind', '?')}）" for c in cast_list) or "（无在场名单信息）"
 
-    out = ["# 契合沙盘 · 受控选项推演 MVP — 台本（整改版）",
+    out = ["# SPOILER · 受控选项推演 MVP — 台本（整改版）",
            "",
            f"- 模型：{m['model']}　幕数：{m['n_scenes']}　LLM 调用：{m['n_llm_calls']} 次　警告：{m['warnings_total']} 条",
            f"- 行动方分布：{actors or '无'}　审计黄旗：{m.get('audit_flags', 0)} 个　洗牌种子：{m.get('seed')}",

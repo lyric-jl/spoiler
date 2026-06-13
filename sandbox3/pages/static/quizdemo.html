@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>SPOILER · 动态测评卷演示</title>
+<!-- 动态测评卷演示页（2026-06-12 作者拍）：白底极简、题目竖排居中，专秀"答得飘自动追题"。
+     全部走真后端：题目=备料案例里 AI 按真 JD 现编的卷（/api/quiz_demo）；
+     计分=产品同一套 score_dim（/api/quiz_score）；追题=出题器 live 现编（/api/quiz_probe，编剧模型）。
+     无任何假数据分支：服务没起/接口失败一律明着报错（live-only 红线）。 -->
+<style>
+  body { background:#fff; color:#1a1a1a; font:16px/1.9 "Microsoft YaHei", system-ui, sans-serif;
+    margin:0; padding:48px 16px 96px; }
+  .wrap { max-width:640px; margin:0 auto; }
+  h1 { font-size:22px; font-weight:600; letter-spacing:.02em; margin:0 0 6px; }
+  .sub { color:#888; font-size:13px; margin-bottom:40px; }
+  .dim { margin-bottom:56px; }
+  .dim h2 { font-size:14px; font-weight:600; color:#555; letter-spacing:.1em;
+    border-bottom:1px solid #e5e5e5; padding-bottom:8px; }
+  .q { margin:26px 0; }
+  .q .sc { margin-bottom:6px; }
+  .q .ask { color:#888; font-size:13px; margin-bottom:10px; }
+  .q .probe-badge { display:inline-block; font-size:12px; color:#b35900; border:1px solid #b35900;
+    border-radius:3px; padding:0 6px; margin-right:8px; }
+  .opt { display:block; width:100%; text-align:left; background:#fff; border:1px solid #d9d9d9;
+    border-radius:6px; padding:10px 14px; margin:8px 0; font:15px/1.7 inherit; cursor:pointer; color:#1a1a1a; }
+  .opt:hover { border-color:#888; }
+  .opt.sel { background:#1a1a1a; color:#fff; border-color:#1a1a1a; }
+  .opt:disabled { cursor:default; opacity:.55; }
+  .opt.sel:disabled { opacity:1; }
+  .otag { display:block; font-style:normal; font-size:12px; color:#999; margin-top:2px; }
+  .opt.sel .otag { color:#bbb; }
+  .verdict { margin-top:14px; padding:10px 14px; background:#f5f5f5; border-radius:6px;
+    font-size:14px; color:#444; }
+  .verdict b { font-weight:600; }
+  .verdict.flag { background:#fff7ef; color:#b35900; }
+  .spin::after { content:""; display:inline-block; width:12px; height:12px; margin-left:8px;
+    border:2px solid #b35900; border-top-color:transparent; border-radius:50%;
+    vertical-align:-2px; animation:r 0.9s linear infinite; }
+  @keyframes r { to { transform:rotate(360deg); } }
+  .sum { margin-top:24px; border-top:2px solid #1a1a1a; padding-top:18px; }
+  .sum table { width:100%; border-collapse:collapse; font-size:14px; }
+  .sum th, .sum td { border-bottom:1px solid #e5e5e5; padding:8px 6px; text-align:left; }
+  .sum th { font-weight:600; color:#555; font-size:13px; }
+  .foot { margin-top:18px; font-size:12px; color:#999; line-height:1.9; text-indent:2em; }
+  .err { color:#b00020; padding:12px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>情境迫选测评卷 <span id="jobTag" style="font-weight:400;color:#888;font-size:14px;"></span></h1>
+  <div class="sub">题目由 AI 按这份岗位 JD 现场生成 · 每个维度先答 3 题；作答不稳会<b>自动追加 2 题</b>（追问题当场现编）· 答完即时计分<br>灰色小字＝每个选项的行为倾向标签，<b>演示页为讲解而显示</b>；候选人正式作答的界面不显示（防照标签作答）</div>
+  <div id="quiz"></div>
+  <div id="summary"></div>
+</div>
+<script>
+(async () => {
+  const qp = new URLSearchParams(location.search);
+  const $quiz = document.getElementById('quiz');
+  let DATA;
+  try {
+    const r = await fetch('/api/quiz_demo?dims=' + (qp.get('dims') || '3'));
+    DATA = await r.json();
+    if (DATA.error) throw new Error(DATA.error);
+  } catch (e) {
+    $quiz.innerHTML = `<div class="err">⚠ 加载测评卷失败：${e.message}（要从 python -m sandbox3.server 的 /quizdemo.html 访问）</div>`;
+    return;
+  }
+  document.getElementById('jobTag').textContent = '∷ ' + (DATA.job || DATA.jd_id);
+
+  // 每维状态：answers=[{价值, chosen}]（与产品 score_dim 的入参同构），rounds=已追轮数，trail=置信轨迹
+  const dims = DATA.dims.map(d => ({ ...d, answers: [], pending: 0, rounds: 0, trail: [], done: false }));
+  const doneDims = [];
+
+  function renderQuestion(dim, q, isProbe) {
+    const qd = document.createElement('div'); qd.className = 'q';
+    const sc = document.createElement('div'); sc.className = 'sc';
+    sc.innerHTML = (isProbe ? `<span class="probe-badge">追题 · 第${dim.rounds}轮 · 刚现编</span>` : '') +
+                   esc(q['情景'] || '');
+    const ask = document.createElement('div'); ask.className = 'ask';
+    ask.textContent = '下面哪个' + (q['问法'] || '最像你') + '？';
+    qd.append(sc, ask);
+    const btns = [];
+    for (const o of (q['选项'] || [])) {
+      const b = document.createElement('button'); b.className = 'opt';
+      b.textContent = (o.id || '') + '　' + (o['文本'] || '');
+      // 倾向标签（2026-06-12 作者拍）：演示页给观众看"每个选项代表哪种人"——正式作答界面按产品规矩隐藏（防照标签作答），页首已标明
+      if (o.dim_tendency){
+        const t = document.createElement('i'); t.className = 'otag';
+        t.textContent = `—— ${o.dim_tendency}（风险端${o.risk_dir || '?'}）`;
+        b.appendChild(t);
+      }
+      b.onclick = () => {
+        btns.forEach(x => { x.disabled = true; });
+        b.classList.add('sel');
+        dim.answers.push({ '价值': q['价值'], chosen: o });
+        dim.pending -= 1;
+        if (dim.pending === 0) scoreDim(dim);
+      };
+      btns.push(b); qd.appendChild(b);
+    }
+    dim.box.insertBefore(qd, dim.verdict);
+    return qd;
+  }
+
+  async function scoreDim(dim) {
+    dim.verdict.className = 'verdict'; dim.verdict.textContent = '计分中…';
+    let s;
+    try {
+      const r = await fetch('/api/quiz_score', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dim: dim.id, risk: dim.risk, answers: dim.answers }) });
+      s = await r.json(); if (s.error) throw new Error(s.error);
+    } catch (e) { dim.verdict.className = 'verdict flag'; dim.verdict.textContent = '⚠ 计分失败：' + e.message; return; }
+    dim.trail.push(s.confidence);
+    dim.score = s;
+    const base = `倾向 <b>${s.lean_label}（${s.lean}）</b> · 作答稳定度（置信）<b>${s.confidence}</b> · 已答 ${dim.answers.length} 题`;
+    if (s.confidence === '低' && dim.rounds < 2) {
+      dim.rounds += 1;
+      dim.verdict.className = 'verdict flag spin';
+      dim.verdict.innerHTML = base + `<br>作答飘 → <b>触发自适应追题（第 ${dim.rounds} 轮）</b>：出题器正在按这份 JD 现编 2 道追问题…`;
+      try {
+        const r = await fetch('/api/quiz_probe', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dim: dim.id, jd_name: DATA.jd_name }) });
+        const j = await r.json(); if (j.error) throw new Error(j.error);
+        dim.verdict.className = 'verdict flag';
+        dim.verdict.innerHTML = base + `<br>作答飘 → 已追加 ${j.questions.length} 道现编追问题（见上方"追题"标记），请继续作答`;
+        dim.pending = j.questions.length;
+        for (const q of j.questions) renderQuestion(dim, q, true);
+      } catch (e) {
+        dim.verdict.className = 'verdict flag';
+        dim.verdict.innerHTML = base + '<br>⚠ 追题现编失败（不拿假题顶替）：' + esc(e.message);
+        finishDim(dim);
+      }
+      return;
+    }
+    const trail = dim.trail.join(' → ');
+    dim.verdict.innerHTML = base +
+      (dim.rounds > 0
+        ? `<br>追题轨迹：置信 <b>${trail}</b>${s.confidence === '低'
+            ? ' —— 追满仍飘，如实判低（不为好看硬编）'
+            : ' —— 追问后多数答案站稳，升"中"封顶（飘过一次不给"高"）'}`
+        : '');
+    finishDim(dim);
+  }
+
+  function finishDim(dim) {
+    if (dim.done) return;
+    dim.done = true; doneDims.push(dim);
+    if (doneDims.length === dims.length) renderSummary();
+  }
+
+  function renderSummary() {
+    const rows = dims.map(d => {
+      const s = d.score || {};
+      const n = d.answers.length;
+      const probe = d.rounds > 0 ? `${n}（追${d.rounds}轮：${d.trail.join('→')}）` : String(n);
+      return `<tr><td>${esc(d.id)}</td><td>${esc(d.risk)}</td><td>${esc(s.lean_label || '?')}（${s.lean ?? '?'}）</td><td>${esc(s.confidence || '?')}</td><td>${probe}</td></tr>`;
+    }).join('');
+    document.getElementById('summary').innerHTML = `<div class="sum">
+      <table><thead><tr><th>维度</th><th>风险</th><th>倾向</th><th>置信</th><th>题量（追题）</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+      <div class="foot">演示为节选维度；题目与追问题均由 AI 按真实脱敏 JD 现场生成、计分与产品同一套代码。倾向＝作答呈现的样子，非真实风险；置信＝作答稳定度，证据不足如实标低。本结果未经真实结局校准，不构成预测。</div>
+    </div>`;
+  }
+
+  function esc(s){ const d = document.createElement('i'); d.textContent = String(s); return d.innerHTML; }
+
+  for (const dim of dims) {
+    const box = document.createElement('div'); box.className = 'dim';
+    box.innerHTML = `<h2>${esc(dim.id)}（${esc(dim.risk)}）</h2>`;
+    const v = document.createElement('div'); v.style.display = 'contents';
+    dim.box = box; dim.verdict = document.createElement('div');
+    dim.verdict.className = 'verdict'; dim.verdict.textContent = '——答完本组自动计分——';
+    box.appendChild(dim.verdict);
+    dim.pending = dim.questions.length;
+    $quiz.appendChild(box);
+    for (const q of dim.questions) renderQuestion(dim, q, false);
+  }
+})();
+</script>
+</body>
+</html>

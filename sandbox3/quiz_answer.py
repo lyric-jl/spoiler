@@ -96,12 +96,22 @@ def score_dim(dim_id: str, risk: str, ans_list: list[dict]) -> dict:
     }
 
 
-def render_portrait_md(cv: dict, jd: dict, scores: list[dict]) -> str:
-    L = [f"# 测评维度画像 · {cv.get('姓名','')}（模拟作答）", "",
-         f"> 出题源 JD：**{jd.get('_jd_id','')}** {jd.get('职位名称','')}；答题人：**{cv.get('姓名','')}**"
-         f"（{cv.get('_cv_id','')} 虚构脱敏简历）。",
-         "> ⚠ 答案是 DeepSeek **扮演**该候选人的猜答、**非真人作答**；本表是"
-         "\"测评→画像\"机制的产物，**不构成对真实作答/真实结局的预测**。",
+def render_portrait_md(cv: dict, jd: dict, scores: list[dict], *, real: bool = False) -> str:
+    """real=False（AI 自答）：抬头标"模拟作答" + ⚠"DeepSeek 扮演、非真人"。
+    real=True（真人答卷，首页"运行项目"走这条）：去掉"模拟/AI 猜答"的错误标注——
+    但"未经校准、不构成预测"的诚实声明保留（红线：去的是错口径、不是免责）。"""
+    who = cv.get("姓名", "") or "候选人"
+    if real:
+        head = [f"# 测评维度画像 · {who}", "",
+                f"> 出题源 JD：**{jd.get('_jd_id','')}** {jd.get('职位名称','')}；答题人：**{who}**（本人真实作答）。",
+                "> 本表是\"测评→画像\"机制的产物、未经真实结局校准，**不构成对真实结局的预测**。"]
+    else:
+        head = [f"# 测评维度画像 · {who}（模拟作答）", "",
+                f"> 出题源 JD：**{jd.get('_jd_id','')}** {jd.get('职位名称','')}；答题人：**{who}**"
+                f"（{cv.get('_cv_id','')} 虚构脱敏简历）。",
+                "> ⚠ 答案是 DeepSeek **扮演**该候选人的猜答、**非真人作答**；本表是"
+                "\"测评→画像\"机制的产物，**不构成对真实作答/真实结局的预测**。"]
+    L = head + [
          "> 倾向＝她全好题选中项的风险端均值（低/中/高）；置信＝同维全好题作答稳定度（飘则低）；"
          "题量列带「追N轮」＝作答飘、系统自适应追题的轨迹（追满仍飘则诚实判低）。", "",
          "| 风险 | 维度 | 倾向 | 置信 | 题量（追题） | 她最像的做法（全好选中） | 她最排斥的坏法（全坏选中） |",
@@ -118,17 +128,28 @@ def render_portrait_md(cv: dict, jd: dict, scores: list[dict]) -> str:
     return "\n".join(L)
 
 
-def render_record_md(cv: dict, jd: dict, answers_by_dim: dict) -> str:
-    """供蒸馏器读：把她每题的选择当作"行为证据"（她面对X→选了Y、理由Z）。"""
-    L = [f"# 测评作答记录 · {cv.get('姓名','')}（模拟作答，供蒸馏）", "",
-         f"> 答题人：{cv.get('姓名','')}（{cv.get('_cv_id','')}，虚构脱敏）。记录她在每个情境下的"
-         "**选择=行为倾向**，供蒸馏成人设+行为手册。答案系 DeepSeek 扮演其作答、非真人。", ""]
+def render_record_md(cv: dict, jd: dict, answers_by_dim: dict, *, real: bool = False) -> str:
+    """供蒸馏器读：把每题的选择当作"行为证据"（面对X→选了Y、理由Z）。
+    real=False（AI 自答，原行为不变）；real=True（真人答卷，首页"运行项目"走这条）：换诚实口径+中性措辞+无理由时不强写。"""
+    name = cv.get("姓名", "") or "候选人"
+    if real:
+        L = [f"# 测评作答记录 · {name}（真人作答，供蒸馏）", "",
+             f"> 答题人：{name}（本人真实作答）。记录其在每个情境下的**选择=行为倾向**，供蒸馏成人设+行为手册。", ""]
+    else:
+        L = [f"# 测评作答记录 · {name}（模拟作答，供蒸馏）", "",
+             f"> 答题人：{name}（{cv.get('_cv_id','')}，虚构脱敏）。记录她在每个情境下的"
+             "**选择=行为倾向**，供蒸馏成人设+行为手册。答案系 DeepSeek 扮演其作答、非真人。", ""]
     for dim_id, al in answers_by_dim.items():
         L.append(f"## {dim_id}")
         for a in al:
-            ask = "最像她" if a["问法"] == "最像你" else "最不像她"
+            if real:
+                ask = "最贴近本人" if a["问法"] == "最像你" else "最排斥"
+                tail = f"（理由：{a['why']}）" if a.get("why") else ""
+            else:
+                ask = "最像她" if a["问法"] == "最像你" else "最不像她"
+                tail = f"（她说：{a['why']}）"
             L.append(f"- 情境：{a['情景']}")
-            L.append(f"  → {ask}的选择：{a['chosen'].get('文本','')}（她说：{a['why']}）")
+            L.append(f"  → {ask}的选择：{a['chosen'].get('文本','')}{tail}")
         L.append("")
     return "\n".join(L)
 

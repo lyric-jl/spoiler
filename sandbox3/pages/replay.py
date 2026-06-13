@@ -334,11 +334,11 @@ def build(run_dir: pathlib.Path) -> pathlib.Path:
     page = f"""<!DOCTYPE html>
 <html lang="zh">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>放映厅 · 契合沙盘 — {run_dir.name}</title><style>{CSS}</style></head>
+<title>放映厅 · SPOILER — {run_dir.name}</title><style>{CSS}</style></head>
 <body>
 <div class="app">
   <aside class="console">
-    <h1>契合沙盘 · 放映厅</h1>
+    <h1>SPOILER · 放映厅</h1>
     <div class="sub">CONTROLLED-OPTION ROLLOUT</div>
     <div class="meta">运行：{run_dir.name}<br>观察主体：{m.get('candidate', '?')}（候选人）<br>
       模型：{m['model']}　幕数：{m['n_scenes']}　调用：{m['n_llm_calls']} 次<br>

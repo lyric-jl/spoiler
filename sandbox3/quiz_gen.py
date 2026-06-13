@@ -243,6 +243,36 @@ def gen_dimension(client: LLMClient, jd: dict, dim: dict,
     raise LLMError(f"维度[{dim['id']}]{tries}次仍出不合格题（{last}）——不放空题混过")
 
 
+def gen_all_dims(client: LLMClient, jd: dict, dims: list[dict] | None = None,
+                 n_good: int = 2, n_bad: int = 1, max_workers: int = 4,
+                 progress=None) -> tuple[dict, list[str]]:
+    """并行出全维题（提速杠杆）：9 维各自独立、ThreadPoolExecutor 同时编，把顺序 3-9min 压到 1-2min。
+    限并发 max_workers=4 防限流；单维失败不连坐（记进 failed、用成功的维度继续）。
+    返回 (by_dim={维度:[题]} 按 DIMENSIONS 顺序, failed=[失败维度名])。progress(msg) 进度回调。"""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    progress = progress or (lambda m: None)
+    dims = dims if dims is not None else DIMENSIONS
+    done: dict[str, list] = {}
+    failed: list[str] = []
+
+    def _one(dim: dict) -> tuple[str, list]:
+        return dim["id"], gen_dimension(client, jd, dim, n_good, n_bad, tries=5)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futs = {ex.submit(_one, d): d for d in dims}
+        for fut in as_completed(futs):
+            d = futs[fut]
+            try:
+                dim_id, qs = fut.result()
+                done[dim_id] = qs
+                progress(f"✓ {d['risk']}·{dim_id}（{len(qs)} 题）")
+            except Exception as e:                       # noqa: BLE001 单维失败不连坐
+                failed.append(d["id"])
+                progress(f"✗ {d['risk']}·{d['id']} 出题失败：{type(e).__name__}: {e}")
+    ordered = {d["id"]: done[d["id"]] for d in dims if d["id"] in done}   # 还原 DIMENSIONS 顺序
+    return ordered, failed
+
+
 def render_md(jd: dict, by_dim: dict, failed: list[str]) -> str:
     lines = [f"# 测评卷（AIG 真跑·编剧模型出题）· {jd.get('职位名称','')}",
              "",
