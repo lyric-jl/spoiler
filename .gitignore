@@ -9,3 +9,7 @@ _run_events.*
 测评作答记录.md
 *备份*.html
 _commit_msg.txt
+
+# 开发工具链（不进仓 / 不上传 GitHub，2026-06-14）
+openspec/
+.claude/
